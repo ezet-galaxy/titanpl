@@ -43,6 +43,7 @@ ${green("tit init <project>")}   Create new Titan project
 ${green("tit dev")}              Dev mode (hot reload)
 ${green("tit build")}            Build production Rust server
 ${green("tit start")}            Start production binary
+${green("tit update")}           Update to latest version
 `);
 }
 
