@@ -34,6 +34,12 @@ rustc -V
 
 ---
 
+## New Features
+  To get new features:
+  ```bash
+  tit update
+  ```
+
 ## ✨ Features
 
 - Write your backend in **pure JavaScript**
