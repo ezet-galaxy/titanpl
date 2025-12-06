@@ -63,7 +63,8 @@ my-app/
 │       └── hello.js
 │
 ├── titan/
-│   └── titan.js
+│   |── titan.js
+|   |__ bundle.js
 │
 ├── cli/
 │   └── bundle.js
