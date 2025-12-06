@@ -9,7 +9,7 @@ use axum::{
     routing::any,
     Router,
 };
-use boa_engine::{Context, JsValue, Source};
+use boa_engine::{Context, Source};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::net::TcpListener;

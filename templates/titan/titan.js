@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { bundle } from "./bundle.js";
 
 const cyan = (t) => `\x1b[36m${t}\x1b[0m`;
 const green = (t) => `\x1b[32m${t}\x1b[0m`;
@@ -38,8 +39,15 @@ const t = {
     return addRoute("POST", route);
   },
 
-  start(port = 3000, msg = "") {
+  async start(port = 3000, msg = "") {
+
+
+    console.log(cyan("[Titan] Bundling actions..."));
+    await bundle();
+
     const base = path.join(process.cwd(), "server");
+    fs.mkdirSync(base, { recursive: true });
+
 
     fs.writeFileSync(
       path.join(base, "routes.json"),
@@ -52,6 +60,7 @@ const t = {
     );
 
     console.log(green(`Titan: routes.json + action_map.json written -> ${base}`));
+
     if (msg) console.log(cyan(msg));
   }
 };
