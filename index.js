@@ -108,31 +108,50 @@ async function devServer() {
     let rustProcess = null;
 
     function startRust() {
-        // ---- FIX: Proper kill for Windows ----
-        if (rustProcess) {
-            console.log(yellow("[Titan] Killing old Rust server..."));
+        return new Promise((resolve) => {
+            // if server already running → kill it
+            if (rustProcess) {
+                console.log("[Titan] Killing old Rust server...");
 
-            if (process.platform === "win32") {
-                spawn("taskkill", ["/PID", rustProcess.pid, "/T", "/F"], {
-                    stdio: "inherit",
-                    shell: true
-                });
+                if (process.platform === "win32") {
+                    const killer = spawn("taskkill", ["/PID", rustProcess.pid, "/T", "/F"], {
+                        stdio: "ignore",
+                        shell: true,
+                    });
+
+                    killer.on("exit", () => {
+                        rustProcess = launchRust(resolve);
+                    });
+                } else {
+                    rustProcess.kill();
+                    rustProcess.on("close", () => {
+                        rustProcess = launchRust(resolve);
+                    });
+                }
             } else {
-                rustProcess.kill();
+                rustProcess = launchRust(resolve);
             }
-        }
+        });
+    }
 
-        // ---- START NEW PROCESS ----
-        rustProcess = spawn("cargo", ["run"], {
+    function launchRust(done) {
+        const processHandle = spawn("cargo", ["run"], {
             cwd: path.join(process.cwd(), "server"),
             stdio: "inherit",
             shell: true,
         });
 
-        rustProcess.on("close", (code) => {
-            console.log(red(`[Titan] Rust server exited: ${code}`));
+        processHandle.on("spawn", () => {
+            setTimeout(done, 200); // wait for OS to release port
         });
+
+        processHandle.on("close", (code) => {
+            console.log(`[Titan] Rust server exited: ${code}`);
+        });
+
+        return processHandle;
     }
+
 
     function rebuild() {
         console.log(cyan("Titan: Regenerating routes..."));
