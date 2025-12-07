@@ -186,18 +186,83 @@ async function devServer() {
 }
 
 
-// BUILD RELEASE
+// BUILD RELEASE — PRODUCTION READY
 function buildProd() {
-    console.log(cyan("Titan: generate routes + bundle..."));
-    execSync("node app/app.js", { stdio: "inherit" });
-    runBundler();
+    console.log(cyan("Titan: Building production output..."));
 
-    console.log(cyan("Titan: building release..."));
-    execSync("cargo build --release", {
-        cwd: path.join(process.cwd(), "server"),
-        stdio: "inherit",
-    });
+    const projectRoot = process.cwd();
+
+    const appJs = path.join(projectRoot, "app", "app.js");
+    const bundler = path.join(projectRoot, "titan", "bundle.js");
+    const serverDir = path.join(projectRoot, "server");
+
+    // 1) Ensure app/app.js exists
+    if (!fs.existsSync(appJs)) {
+        console.log(red("ERROR: app/app.js not found. Cannot build Titan project."));
+        process.exit(1);
+    }
+
+    // 2) Ensure bundler exists
+    if (!fs.existsSync(bundler)) {
+        console.log(red("ERROR: titan/bundle.js not found. Cannot bundle actions."));
+        process.exit(1);
+    }
+
+    // 3) Generate routes.json + action_map.json
+    console.log(cyan("→ Generating Titan metadata (routes + action_map)..."));
+    try {
+        execSync(`node app/app.js --build`, { stdio: "inherit" });
+    } catch (err) {
+        console.log(red("Failed to generate metadata via app/app.js"));
+        process.exit(1);
+    }
+
+    // 4) Bundle JS actions → .jsbundle files
+    console.log(cyan("→ Bundling Titan actions..."));
+    try {
+        execSync(`node titan/bundle.js`, { stdio: "inherit" });
+    } catch (err) {
+        console.log(red("Bundler failed. Check titan/bundle.js for errors."));
+        process.exit(1);
+    }
+
+    // 5) Ensure server/actions folder exists
+    const actionsOut = path.join(serverDir, "actions");
+    if (!fs.existsSync(actionsOut)) {
+        fs.mkdirSync(actionsOut, { recursive: true });
+    }
+
+    // 6) Copy generated bundles into server/actions
+    const builtActions = path.join(projectRoot, "titan", "actions");
+    if (fs.existsSync(builtActions)) {
+        for (const file of fs.readdirSync(builtActions)) {
+            if (file.endsWith(".jsbundle")) {
+                fs.copyFileSync(
+                    path.join(builtActions, file),
+                    path.join(actionsOut, file)
+                );
+            }
+        }
+    }
+
+    console.log(green("✔ Bundles copied to server/actions"));
+
+    // 7) Build Rust binary
+    console.log(cyan("→ Building Rust release binary..."));
+    try {
+        execSync(`cargo build --release`, {
+            cwd: serverDir,
+            stdio: "inherit",
+        });
+    } catch (err) {
+        console.log(red("Rust build failed."));
+        process.exit(1);
+    }
+
+    console.log(green("✔ Titan production build complete!"));
+    console.log(green("✔ Rust binary ready at server/target/release/"));
 }
+
 
 // START PRODUCTION
 function startProd() {
