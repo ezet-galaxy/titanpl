@@ -1,9 +1,9 @@
-// src/main.rs
-use std::{collections::HashMap, fs, sync::Arc, path::PathBuf};
+// server/src/main.rs
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use axum::{
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     extract::State,
     http::{Request, StatusCode},
     response::{IntoResponse, Json},
@@ -11,23 +11,18 @@ use axum::{
     Router,
 };
 
-use boa_engine::{
-    Context, JsValue, Source,
-    native_function::NativeFunction,
-    object::ObjectInitializer,
-    property::Attribute,
-};
-use boa_engine::js_string;
+use boa_engine::{object::ObjectInitializer, Context, JsValue, Source};
+use boa_engine::{js_string, native_function::NativeFunction, property::Attribute};
+
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::blocking::Client;
 
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::task;
 
-use reqwest::blocking::Client;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-
-/// Route configuration entry parsed from routes.json
+/// Route configuration (loaded from routes.json)
 #[derive(Debug, Deserialize)]
 struct RouteVal {
     r#type: String,
@@ -40,26 +35,56 @@ struct AppState {
     project_root: PathBuf,
 }
 
-/// Inject a synchronous `t.fetch(url, opts?)` into the Boa context.
-/// This `t.fetch` runs the blocking HTTP call inside `tokio::task::block_in_place`
-/// so it is safe to call while inside an async Tokio context.
+/// Try to find the directory that contains compiled action bundles.
+///
+/// Checks multiple likely paths to support both dev and production container layouts:
+///  - <project_root>/server/actions
+///  - <project_root>/actions
+///  - <project_root>/../server/actions
+///  - /app/actions
+///  - ./actions
+fn find_actions_dir(project_root: &PathBuf) -> Option<PathBuf> {
+    let candidates = [
+        project_root.join("server").join("actions"),
+        project_root.join("actions"),
+        project_root.join("..").join("server").join("actions"),
+        PathBuf::from("/app").join("actions"),
+        PathBuf::from("actions"),
+    ];
+
+    for p in &candidates {
+        if p.exists() && p.is_dir() {
+            return Some(p.clone());
+        }
+    }
+
+    None
+}
+
+/// Injects a synchronous `t.fetch(url, opts?)` function into the Boa `Context`.
+///
+/// Implementation details:
+///  - Converts JS opts → `serde_json::Value` (owned) using `to_json`.
+///  - Executes reqwest blocking client inside `tokio::task::block_in_place` to avoid blocking async runtime.
+///  - Returns `{ ok: bool, status?: number, body?: string, error?: string }`.
 fn inject_t_fetch(ctx: &mut Context) {
-    // Create native Rust function (Boa v0.20)
+    // Native function (Boa 0.20) using from_fn_ptr
     let t_fetch_native = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        // Extract arguments (safely convert JS strings to owned Rust Strings)
+        // Extract URL (owned string)
         let url = args
             .get(0)
-            .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
             .unwrap_or_default();
 
-        // opts may be undefined. Convert to serde_json::Value for thread-safety.
+        // Extract opts -> convert to serde_json::Value (owned)
         let opts_js = args.get(1).cloned().unwrap_or(JsValue::undefined());
         let opts_json: Value = match opts_js.to_json(ctx) {
             Ok(v) => v,
             Err(_) => Value::Object(serde_json::Map::new()),
         };
 
-        // Extract method, body, headers from opts_json (owned data, Send)
+        // Pull method, body, headers into owned Rust values
         let method = opts_json
             .get("method")
             .and_then(|m| m.as_str())
@@ -72,7 +97,7 @@ fn inject_t_fetch(ctx: &mut Context) {
             None => None,
         };
 
-        // Build header map from opts_json["headers"] if present
+        // headers as Vec<(String,String)>
         let mut header_pairs: Vec<(String, String)> = Vec::new();
         if let Some(Value::Object(map)) = opts_json.get("headers") {
             for (k, v) in map.iter() {
@@ -84,16 +109,13 @@ fn inject_t_fetch(ctx: &mut Context) {
             }
         }
 
-        // Perform blocking HTTP request inside block_in_place so we don't drop a blocking runtime
+        // Perform the blocking HTTP request inside block_in_place to avoid runtime panic
         let out_json = task::block_in_place(move || {
-            // Create blocking client
             let client = Client::new();
 
-            // Build request
             let method_parsed = method.parse().unwrap_or(reqwest::Method::GET);
             let mut req = client.request(method_parsed, &url);
 
-            // Attach headers
             if !header_pairs.is_empty() {
                 let mut headers = HeaderMap::new();
                 for (k, v) in header_pairs.into_iter() {
@@ -110,11 +132,9 @@ fn inject_t_fetch(ctx: &mut Context) {
                 req = req.body(body);
             }
 
-            // Send request
             match req.send() {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    // Try to read text, fallback to empty string on error
                     let text = resp.text().unwrap_or_default();
                     serde_json::json!({
                         "ok": true,
@@ -122,44 +142,42 @@ fn inject_t_fetch(ctx: &mut Context) {
                         "body": text
                     })
                 }
-                Err(e) => {
-                    serde_json::json!({
-                        "ok": false,
-                        "error": e.to_string()
-                    })
-                }
+                Err(e) => serde_json::json!({
+                    "ok": false,
+                    "error": e.to_string()
+                }),
             }
         });
 
-        // Convert serde_json::Value -> JsValue for return to JS
+        // Convert serde_json::Value -> JsValue
         Ok(JsValue::from_json(&out_json, ctx).unwrap_or(JsValue::undefined()))
     });
 
-    // Convert the native function into a JS function object (requires Realm in Boa 0.20)
+    // Convert native function to JS function object (requires Realm)
     let realm = ctx.realm();
     let t_fetch_js_fn = t_fetch_native.to_js_function(realm);
 
-    // Build `t` object with `.fetch` property
+    // Build `t` object with `.fetch`
     let t_obj = ObjectInitializer::new(ctx)
         .property(js_string!("fetch"), t_fetch_js_fn, Attribute::all())
         .build();
 
-    // Attach to globalThis.t
     ctx.global_object()
         .set(js_string!("t"), JsValue::from(t_obj), false, ctx)
-        .unwrap();
+        .expect("set global t");
 }
 
-// Axum handlers --------------------------------------------------------------
+// Root/dynamic handlers -----------------------------------------------------
 
 async fn root_route(state: State<AppState>, req: Request<Body>) -> impl IntoResponse {
     dynamic_handler_inner(state, req).await
 }
+
 async fn dynamic_route(state: State<AppState>, req: Request<Body>) -> impl IntoResponse {
     dynamic_handler_inner(state, req).await
 }
 
-/// Main handler that evaluates JS actions from bundles using Boa
+/// Main handler: looks up routes.json and executes action bundles using Boa.
 async fn dynamic_handler_inner(
     State(state): State<AppState>,
     req: Request<Body>,
@@ -179,18 +197,23 @@ async fn dynamic_handler_inner(
             "action" => {
                 let action_name = route.value.as_str().unwrap_or("").trim();
                 if action_name.is_empty() {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Invalid action name",
-                    )
-                        .into_response();
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid action name").into_response();
                 }
 
-                let action_path = state.project_root
-                    .join("actions")
-                    .join(format!("{}.jsbundle", action_name));
+                // Resolve actions directory robustly
+                let actions_dir = find_actions_dir(&state.project_root);
+                let actions_dir = match actions_dir {
+                    Some(p) => p,
+                    None => {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Actions directory not found (checked multiple locations)"),
+                        )
+                            .into_response();
+                    }
+                };
 
-
+                let action_path = actions_dir.join(format!("{}.jsbundle", action_name));
 
                 if !action_path.exists() {
                     return (
@@ -200,7 +223,7 @@ async fn dynamic_handler_inner(
                         .into_response();
                 }
 
-                let js_code = match fs::read_to_string(action_path) {
+                let js_code = match fs::read_to_string(&action_path) {
                     Ok(v) => v,
                     Err(e) => {
                         return (
@@ -211,14 +234,14 @@ async fn dynamic_handler_inner(
                     }
                 };
 
-                // Build env
+                // Build env object
                 let mut env_map = serde_json::Map::new();
                 for (k, v) in std::env::vars() {
                     env_map.insert(k, Value::String(v));
                 }
                 let env_json = Value::Object(env_map);
 
-                // Injected JS: set process.env, provide request payload, then eval bundle and call action
+                // Injected script: sets process.env and __titan_req and invokes action function.
                 let injected = format!(
                     r#"
                     globalThis.process = {{ env: {} }};
@@ -232,7 +255,6 @@ async fn dynamic_handler_inner(
                     action_name
                 );
 
-                // Create Boa context, inject t.fetch, evaluate
                 let mut ctx = Context::default();
                 inject_t_fetch(&mut ctx);
 
@@ -241,7 +263,6 @@ async fn dynamic_handler_inner(
                     Err(e) => return Json(json_error(e.to_string())).into_response(),
                 };
 
-                // to_json returns Result<Value, JsError> in Boa 0.20
                 let result_json: Value = match result.to_json(&mut ctx) {
                     Ok(v) => v,
                     Err(e) => json_error(e.to_string()),
@@ -267,25 +288,30 @@ fn json_error(msg: String) -> Value {
     serde_json::json!({ "error": msg })
 }
 
-// Entrypoint -----------------------------------------------------------------
+// Entrypoint ---------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
+    // Load routes.json (expected at runtime root)
     let raw = fs::read_to_string("./routes.json").unwrap_or_else(|_| "{}".to_string());
     let json: Value = serde_json::from_str(&raw).unwrap_or_default();
 
     let port = json["__config"]["port"].as_u64().unwrap_or(3000);
-
     let routes_json = json["routes"].clone();
-    let map: HashMap<String, RouteVal> =
-        serde_json::from_value(routes_json).unwrap_or_default();
+    let map: HashMap<String, RouteVal> = serde_json::from_value(routes_json).unwrap_or_default();
 
-    let project_root = std::env::current_dir()?
-        .parent()
-        .unwrap()
-        .to_path_buf();
+    // Project root — heuristics: try current_dir()
+    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Debug logging — show where we looked for actions
+    eprintln!("DEBUG runtime cwd: {:?}", std::env::current_dir());
+    eprintln!("DEBUG project_root: {:?}", project_root);
+    eprintln!(
+        "DEBUG found actions dir (if any): {:?}",
+        find_actions_dir(&project_root)
+    );
 
     let state = AppState {
         routes: Arc::new(map),
@@ -299,18 +325,15 @@ async fn main() -> Result<()> {
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
-//
-    // TITAN BANNER
-    //
+    // Banner (yellow-orange) and server info
     println!("\n\x1b[38;5;208m████████╗██╗████████╗ █████╗ ███╗   ██╗");
     println!("╚══██╔══╝██║╚══██╔══╝██╔══██╗████╗  ██║");
     println!("   ██║   ██║   ██║   ███████║██╔██╗ ██║");
     println!("   ██║   ██║   ██║   ██╔══██║██║╚██╗██║");
     println!("   ██║   ██║   ██║   ██║  ██║██║ ╚████║");
     println!("   ╚═╝   ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝\x1b[0m\n");
-
     println!("\x1b[38;5;39mTitan server running at:\x1b[0m http://localhost:{}", port);
-    
+
     axum::serve(listener, app).await?;
     Ok(())
 }

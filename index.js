@@ -43,7 +43,7 @@ function copyDir(src, dest) {
 /* HELP */
 function help() {
     console.log(`
-${bold(cyan("Titan CLI"))}  v${TITAN_VERSION}
+${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
 
 ${green("tit init <project>")}   Create new Titan project
 ${green("tit dev")}              Dev mode (hot reload)
@@ -202,18 +202,19 @@ function buildProd() {
     const outDir = path.join(root, "server", "actions");
     fs.mkdirSync(outDir, { recursive: true });
 
-    const builtActions = path.join(root, "titan", "actions");
+    const builtActions = path.join(projectRoot, "server", "actions");
 
     if (fs.existsSync(builtActions)) {
         for (const file of fs.readdirSync(builtActions)) {
             if (file.endsWith(".jsbundle")) {
                 fs.copyFileSync(
                     path.join(builtActions, file),
-                    path.join(outDir, file)
+                    path.join(actionsOut, file)
                 );
             }
         }
     }
+
 
     console.log(green("✔ Actions copied to server/actions"));
 
@@ -240,19 +241,65 @@ function updateTitan() {
     const root = process.cwd();
     const projectTitan = path.join(root, "titan");
 
-    const cliTemplatesRoot = path.join(__dirname, "templates");
-    const cliTitan = path.join(cliTemplatesRoot, "titan");
+    const templatesRoot = path.join(__dirname, "templates");
+    const templateTitan = path.join(templatesRoot, "titan");
+
+    const templateServer = path.join(templatesRoot, "server");
+    const templateCargo = path.join(templateServer, "Cargo.toml");
+    const templateMain = path.join(templateServer, "src", "main.rs");
 
     if (!fs.existsSync(projectTitan)) {
-        console.log(red("Not a Titan project (titan/ missing)."));
+        console.log(red("Not a Titan project — titan/ folder missing."));
         return;
     }
 
-    fs.rmSync(projectTitan, { recursive: true, force: true });
-    copyDir(cliTitan, projectTitan);
+    console.log(cyan("Updating Titan runtime..."));
 
-    console.log(green("✔ Titan runtime updated"));
+    // ----------------------------------------------------------
+    // 1. Update titan/ runtime folder
+    // ----------------------------------------------------------
+    fs.rmSync(projectTitan, { recursive: true, force: true });
+    copyDir(templateTitan, projectTitan);
+    console.log(green("✔ Updated titan/ runtime"));
+
+    // ----------------------------------------------------------
+    // 2. Update server/Cargo.toml
+    // ----------------------------------------------------------
+    const destCargo = path.join(root, "server", "Cargo.toml");
+    if (fs.existsSync(templateCargo)) {
+        fs.copyFileSync(templateCargo, destCargo);
+        console.log(green("✔ Updated server/Cargo.toml"));
+    } else {
+        console.log(yellow("⚠ Missing Cargo.toml template in CLI."));
+    }
+
+    // ----------------------------------------------------------
+    // 3. Update server/src/main.rs
+    // ----------------------------------------------------------
+    const destMain = path.join(root, "server", "src", "main.rs");
+    if (fs.existsSync(templateMain)) {
+        fs.copyFileSync(templateMain, destMain);
+        console.log(green("✔ Updated server/src/main.rs"));
+    } else {
+        console.log(yellow("⚠ Missing server/src/main.rs in CLI."));
+    }
+
+    // ----------------------------------------------------------
+    // 4. Update project-level config files
+    // ----------------------------------------------------------
+    [".gitignore", ".dockerignore", "Dockerfile"].forEach((file) => {
+        const src = path.join(templatesRoot, file);
+        const dest = path.join(root, file);
+
+        if (fs.existsSync(src)) {
+            fs.copyFileSync(src, dest);
+            console.log(green(`✔ Updated ${file}`));
+        }
+    });
+
+    console.log(bold(green("✔ Titan update complete")));
 }
+
 
 /* ROUTER */
 switch (cmd) {

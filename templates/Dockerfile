@@ -3,57 +3,49 @@
 # ================================================================
 FROM rust:1.91.1 AS builder
 
-# Install Node for Titan CLI and bundler
+# Install Node for Titan CLI + bundler
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
 
-# Install Titan CLI globally
-RUN npm install -g @ezetgalaxy/titan
+# Install Titan CLI (latest)
+RUN npm install -g @ezetgalaxy/titan@latest
 
 WORKDIR /app
 
-# Copy project files into container
+# Copy project files
 COPY . .
 
-# Install JS dependencies (for bundler & DSL)
+# Install JS dependencies (needed for Titan DSL + bundler)
 RUN npm install
 
-# Build Titan metadata (routes.json + actions/*.jsbundle)
+# Build Titan metadata + bundle JS actions
 RUN tit build
 
-# Build the Rust backend (release mode)
+# Build Rust binary
 RUN cd server && cargo build --release
 
 
 
 # ================================================================
-# STAGE 2 — Runtime Image 
+# STAGE 2 — Runtime Image (Lightweight)
 # ================================================================
 FROM debian:stable-slim
 
 WORKDIR /app
 
-# -------------------------------------------------------------
-# Copy the Rust binary
-# -------------------------------------------------------------
+# Copy Rust binary from builder stage
 COPY --from=builder /app/server/target/release/server ./titan-server
 
-# -------------------------------------------------------------
-# Copy Titan routing metadata (REQUIRED)
-# -------------------------------------------------------------
+# Copy Titan routing metadata
 COPY --from=builder /app/server/routes.json ./routes.json
 COPY --from=builder /app/server/action_map.json ./action_map.json
 
-# -------------------------------------------------------------
-# Copy Titan JS bundles directory (REQUIRED)
-# -------------------------------------------------------------
+# Copy Titan JS bundles
 RUN mkdir -p /app/actions
 COPY --from=builder /app/server/actions /app/actions
 
-
-# -------------------------------------------------------------
-# Runtime configuration
-# -------------------------------------------------------------
+# Expose Titan port
 EXPOSE 3000
 
+# Start Titan
 CMD ["./titan-server"]
