@@ -186,11 +186,11 @@ async fn dynamic_handler_inner(
                         .into_response();
                 }
 
-                let action_path = state
-                    .project_root
-                    .join("server")
+                let action_path = state.project_root
                     .join("actions")
                     .join(format!("{}.jsbundle", action_name));
+
+
 
                 if !action_path.exists() {
                     return (
