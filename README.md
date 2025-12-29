@@ -260,3 +260,4 @@ No exports wiring. No globals. No boilerplate.
 * Native Rust performance
 * Designed for cloud & AI workloads
 
+---
