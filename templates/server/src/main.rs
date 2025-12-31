@@ -18,10 +18,15 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::blocking::Client;
 
 use serde::Deserialize;
-use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::task;
 use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json::Value;
+
+
+use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
+use bcrypt::{hash, verify, DEFAULT_COST};
 
 
 
@@ -84,6 +89,18 @@ fn format_js_error(err: boa_engine::JsError, action: &str) -> String {
     )
 }
 
+fn parse_expires_in(value: &str) -> Option<u64> {
+    let (num, unit) = value.split_at(value.len() - 1);
+    let n: u64 = num.parse().ok()?;
+
+    match unit {
+        "s" => Some(n),
+        "m" => Some(n * 60),
+        "h" => Some(n * 60 * 60),
+        "d" => Some(n * 60 * 60 * 24),
+        _ => None,
+    }
+}
 
 
 
@@ -276,9 +293,146 @@ fn inject_t_runtime(ctx: &mut Context, action_name: &str) {
     });
 
     // =========================================================
+    // t.jwt
+    // =========================================================
+    let t_jwt_sign = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        // payload (must be object)
+        let mut payload = args.get(0)
+            .and_then(|v| v.to_json(ctx).ok())
+            .and_then(|v| v.as_object().cloned())
+            .ok_or_else(|| {
+                JsError::from_native(
+                    boa_engine::JsNativeError::typ()
+                        .with_message("t.jwt.sign(payload, secret[, options])"),
+                )
+            })?;
+    
+        // secret
+        let secret = args.get(1)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+
+        if let Some(opts) = args.get(2) {
+            if let Ok(Value::Object(opts)) = opts.to_json(ctx) {
+                if let Some(exp) = opts.get("expiresIn") {
+                    let seconds = match exp {
+                        Value::Number(n) => n.as_u64(),
+                        Value::String(s) => parse_expires_in(s),
+                     _ => None,
+                    };
+
+            if let Some(sec) = seconds {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                payload.insert(
+                    "exp".to_string(),
+                    Value::Number(serde_json::Number::from(now + sec)),
+                );
+            }
+        }
+    }
+}
+
+        let token = encode(
+            &Header::default(),
+            &Value::Object(payload),
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .map_err(|e| {
+            JsError::from_native(
+                boa_engine::JsNativeError::error().with_message(e.to_string()),
+            )
+        })?;
+    
+        Ok(JsValue::from(js_string!(token)))
+    });
+    
+    let t_jwt_verify = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let token = args.get(0)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+        let secret = args.get(1)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+        let mut validation = Validation::default();
+        validation.validate_exp = true;
+    
+        let data = decode::<Value>(
+            &token,
+            &DecodingKey::from_secret(secret.as_bytes()),
+            &validation,
+        )
+        .map_err(|_| {
+            JsError::from_native(
+                boa_engine::JsNativeError::error()
+                    .with_message("Invalid or expired JWT"),
+            )
+        })?;
+    
+        JsValue::from_json(&data.claims, ctx).map_err(|e| e.into())
+    });
+    
+
+    
+    // =========================================================
+    // t.password
+    // =========================================================
+    let t_password_hash = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let password = args.get(0)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+        let hashed = hash(password, DEFAULT_COST)
+            .map_err(|e| JsError::from_native(
+                boa_engine::JsNativeError::error().with_message(e.to_string())
+            ))?;
+    
+            Ok(JsValue::from(js_string!(hashed)))
+    });
+
+    let t_password_verify = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let password = args.get(0)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+        let hash_str = args.get(1)
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+    
+        let ok = verify(password, &hash_str).unwrap_or(false);
+    
+        Ok(JsValue::from(ok))
+    });
+
+   
+    
+
+    // =========================================================
     // Build global `t`
     // =========================================================
     let realm = ctx.realm().clone();
+
+    let jwt_obj = ObjectInitializer::new(ctx)
+    .property(js_string!("sign"), t_jwt_sign.to_js_function(&realm), Attribute::all())
+    .property(js_string!("verify"), t_jwt_verify.to_js_function(&realm), Attribute::all())
+    .build();
+
+    let password_obj = ObjectInitializer::new(ctx)
+    .property(js_string!("hash"), t_password_hash.to_js_function(&realm), Attribute::all())
+    .property(js_string!("verify"), t_password_verify.to_js_function(&realm), Attribute::all())
+    .build();
 
     let t_obj = ObjectInitializer::new(ctx)
         .property(
@@ -291,6 +445,8 @@ fn inject_t_runtime(ctx: &mut Context, action_name: &str) {
             t_fetch_native.to_js_function(&realm),
             Attribute::all(),
         )    
+        .property(js_string!("jwt"), jwt_obj, Attribute::all())
+        .property(js_string!("password"), password_obj, Attribute::all())
         .build();
 
     ctx.global_object()
