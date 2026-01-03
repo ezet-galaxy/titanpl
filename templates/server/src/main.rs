@@ -229,10 +229,14 @@ fn inject_t_runtime(ctx: &mut Context, action_name: &str) {
             .unwrap_or("GET")
             .to_string();
 
-        let body_opt = opts_json
-            .get("body")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            let body_opt = opts_json.get("body").map(|v| {
+                if v.is_string() {
+                    v.as_str().unwrap().to_string()
+                } else {
+                    serde_json::to_string(v).unwrap_or_default()
+                }
+            });
+            
 
         let mut header_pairs = Vec::new();
         if let Some(Value::Object(map)) = opts_json.get("headers") {
@@ -247,7 +251,12 @@ fn inject_t_runtime(ctx: &mut Context, action_name: &str) {
         // 3. Blocking HTTP (safe fallback)
         // -----------------------------
         let out_json = task::block_in_place(move || {
-            let client = Client::new();
+            let client = Client::builder()
+           .use_rustls_tls()
+            .tcp_nodelay(true)
+            .build()
+            .unwrap();
+
 
             let mut req = client.request(method.parse().unwrap_or(reqwest::Method::GET), &url);
 

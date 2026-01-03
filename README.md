@@ -1,19 +1,17 @@
 
 ```
-████████╗██╗████████╗ █████╗ ███╗   ██╗
-╚══██╔══╝██║╚══██╔══╝██╔══██╗████╗  ██║
-   ██║   ██║   ██║   ███████║██╔██╗ ██║
-   ██║   ██║   ██║   ██╔══██║██║╚██╗██║
-   ██║   ██║   ██║   ██║  ██║██║ ╚████║
-   ╚═╝   ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝
+████████╗██╗████████╗ █████╗ ███╗   ██╗   ██████╗  ██████╗ ██████╗  ██████╗
+╚══██╔══╝██║╚══██╔══╝██╔══██╗████╗  ██║   ╚════██╗██╔═████╗╚════██╗██╔════╝
+   ██║   ██║   ██║   ███████║██╔██╗ ██║    █████╔╝██║██╔██║ █████╔╝███████╗
+   ██║   ██║   ██║   ██╔══██║██║╚██╗██║   ██╔═══╝ ████╔╝██║██╔═══╝ ██═══██║
+   ██║   ██║   ██║   ██║  ██║██║ ╚████║   ███████╗╚██████╔╝███████╗███████║
+   ╚═╝   ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚══════╝ ╚═════╝ ╚══════╝╚══════╝
 ```
 
 # Notice
 
-✅ **Production mode is ready**
 💙 **Enjoy development mode `titan dev`**
-✅ **No more `globalThis` required**
-💟 **Website for titan docs: https://titan-docs-ez.vercel.app/docs**
+💟 **Titan Planet docs: https://titan-docs-ez.vercel.app/docs**
 🚀 **CLI: `titan` is now the canonical command. `tit` remains supported as an alias.**
 
 ---
@@ -22,7 +20,7 @@
 
 **JavaScript Simplicity. Rust Power. Zero Configuration.**
 
-Titan Planet is a JavaScript-first backend framework that compiles your JavaScript routes and actions into a **native Rust + Axum server**.
+Titan Planet is a JavaScript-first backend framework that embeds JS actions into a Rust + Axum server and ships as a single native binary. Routes are compiled to static metadata; only actions run in the embedded JS runtime. No Node.js. No event loop in production.
 
 You write **zero Rust**.
 Titan ships a full backend engine, dev server, bundler, router, action runtime, and Docker deploy pipeline — all powered by Rust under the hood.
