@@ -21,27 +21,33 @@ const bold = (t) => `\x1b[1m${t}\x1b[0m`;
  * Invocation detection (tit vs titan)
  * ----------------------------------------------------- */
 function wasInvokedAsTit() {
-    // Case 1: direct binary (global / local)
-    const argv = process.argv.map(a => a.toLowerCase());
-    const direct =
-        argv[1]?.endsWith("tit") ||
-        argv[1]?.endsWith("tit.cmd") ||
-        argv[1]?.endsWith("tit.ps1");
-
-    if (direct) return true;
-
-    // Case 2: npx / npm exec
-    const npmArgvRaw = process.env.npm_config_argv;
-    if (!npmArgvRaw) return false;
+    const script = process.argv[1];
+    if (script) {
+        const base = path.basename(script, path.extname(script)).toLowerCase();
+        if (base === "tit") return true;
+    }
 
     try {
-        const npmArgv = JSON.parse(npmArgvRaw);
+        const raw = process.env.npm_config_argv;
+        if (raw) {
+            const cfg = JSON.parse(raw);
+            if (cfg.original && Array.isArray(cfg.original)) {
+                // e.g. ["tit", "dev"]
+                const first = cfg.original[0];
+                if (first && first.includes("tit") && !first.includes("titan")) {
+                    return true;
+                }
+            }
+        }
+    } catch { }
 
-        // npm stores original command here
-        return npmArgv.original?.includes("tit");
-    } catch {
-        return false;
+    const lastCmd = process.env["_"];
+    if (lastCmd) {
+        const base = path.basename(lastCmd, path.extname(lastCmd)).toLowerCase();
+        if (base === "tit") return true;
     }
+
+    return false;
 }
 
 const isTitAlias = wasInvokedAsTit();
@@ -54,9 +60,6 @@ if (isTitAlias) {
         )
     );
 }
-
-
-
 
 /* -------------------------------------------------------
  * Args
@@ -221,8 +224,14 @@ async function devServer() {
         runBundler(root);
     }
 
-    rebuild();
-    startRust();
+    try {
+        rebuild();
+        startRust();
+    } catch (e) {
+        console.log(red("Initial build failed:"));
+        console.log(e.message);
+        // Do not die even on initial fail, user might fix it.
+    }
 
     const chokidar = (await import("chokidar")).default;
     const watcher = chokidar.watch("app", { ignoreInitial: true });
@@ -234,8 +243,12 @@ async function devServer() {
 
         timer = setTimeout(() => {
             console.log(yellow(`Change → ${file}`));
-            rebuild();
-            startRust();
+            try {
+                rebuild();
+                startRust();
+            } catch (err) {
+                console.log(red("Build failed — waiting for changes..."));
+            }
         }, 250);
     });
 }

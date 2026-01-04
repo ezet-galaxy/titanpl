@@ -1,6 +1,4 @@
-// server/src/main.rs
-use std::{collections::HashMap, env, fs, path::PathBuf, sync::Arc, path::Path};
-use boa_engine::JsError;
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use anyhow::Result;
 use axum::{
     body::{to_bytes, Body},
@@ -11,517 +9,29 @@ use axum::{
     Router,
 };
 
-use boa_engine::{object::ObjectInitializer, Context, JsValue, Source};
-use boa_engine::{js_string, native_function::NativeFunction, property::Attribute};
-
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::blocking::Client;
-
-use serde::Deserialize;
-use tokio::net::TcpListener;
-use tokio::task;
-use std::time::Instant;
-use std::time::{SystemTime, UNIX_EPOCH};
+use boa_engine::{Context, Source};
 use serde_json::Value;
+use tokio::net::TcpListener;
+use std::time::Instant;
 
+mod utils;
+mod errors;
+mod extensions;
+mod action_management;
 
-use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
-use bcrypt::{hash, verify, DEFAULT_COST};
-
-
-
-
-
-
-
-
-
-
-
-/// Route configuration (loaded from routes.json)
-#[derive(Debug, Deserialize)]
-struct RouteVal {
-    r#type: String,
-    value: Value,
-}
+use utils::{blue, white, yellow, green, gray, red};
+use errors::format_js_error;
+use extensions::inject_t_runtime;
+use action_management::{
+    resolve_actions_dir, find_actions_dir, match_dynamic_route, 
+    DynamicRoute, RouteVal
+};
 
 #[derive(Clone)]
 struct AppState {
     routes: Arc<HashMap<String, RouteVal>>,
     dynamic_routes: Arc<Vec<DynamicRoute>>,
     project_root: PathBuf,
-}
-
-
-#[derive(Debug, Deserialize)]
-struct DynamicRoute {
-    method: String,
-    pattern: String,
-    action: String,
-}
-
-
-fn blue(s: &str) -> String {
-    format!("\x1b[34m{}\x1b[0m", s)
-}
-fn white(s: &str) -> String {
-    format!("\x1b[39m{}\x1b[0m", s)
-}
-fn yellow(s: &str) -> String {
-    format!("\x1b[33m{}\x1b[0m", s)
-}
-fn green(s: &str) -> String {
-    format!("\x1b[32m{}\x1b[0m", s)
-}
-fn gray(s: &str) -> String {
-    format!("\x1b[90m{}\x1b[0m", s)
-}
-fn red(s: &str) -> String {
-    format!("\x1b[31m{}\x1b[0m", s)
-}
-
-// A helper to Format Boa Errors
-fn format_js_error(err: boa_engine::JsError, action: &str) -> String {
-    format!(
-        "Action: {}\n{}",
-        action,
-        err.to_string()
-    )
-}
-
-fn parse_expires_in(value: &str) -> Option<u64> {
-    let (num, unit) = value.split_at(value.len() - 1);
-    let n: u64 = num.parse().ok()?;
-
-    match unit {
-        "s" => Some(n),
-        "m" => Some(n * 60),
-        "h" => Some(n * 60 * 60),
-        "d" => Some(n * 60 * 60 * 24),
-        _ => None,
-    }
-}
-
-
-
-
-// -------------------------
-// ACTION DIRECTORY RESOLUTION
-// -------------------------
-
-fn resolve_actions_dir() -> PathBuf {
-    // Respect explicit override first
-    if let Ok(override_dir) = env::var("TITAN_ACTIONS_DIR") {
-        return PathBuf::from(override_dir);
-    }
-
-    // Production container layout
-    if Path::new("/app/actions").exists() {
-        return PathBuf::from("/app/actions");
-    }
-
-    // Try to walk up from the executing binary to discover `<...>/server/actions`
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            if let Some(target_dir) = parent.parent() {
-                if let Some(server_dir) = target_dir.parent() {
-                    let candidate = server_dir.join("actions");
-                    if candidate.exists() {
-                        return candidate;
-                    }
-                }
-            }
-        }
-    }
-
-    // Fall back to local ./actions
-    PathBuf::from("./actions")
-}
-
-/// Try to find the directory that contains compiled action bundles.
-///
-/// Checks multiple likely paths to support both dev and production container layouts:
-///  - <project_root>/server/actions
-///  - <project_root>/actions
-///  - <project_root>/../server/actions
-///  - /app/actions
-///  - ./actions
-fn find_actions_dir(project_root: &PathBuf) -> Option<PathBuf> {
-    let candidates = [
-        project_root.join("server").join("actions"),
-        project_root.join("actions"),
-        project_root.join("..").join("server").join("actions"),
-        PathBuf::from("/app").join("actions"),
-        PathBuf::from("actions"),
-    ];
-
-    for p in &candidates {
-        if p.exists() && p.is_dir() {
-            return Some(p.clone());
-        }
-    }
-
-    None
-}
-
-/// Here add all the runtime t base things
-/// Injects a synchronous `t.fetch(url, opts?)` function into the Boa `Context`.
-///
-/// Implementation details:
-///  - Converts JS opts → `serde_json::Value` (owned) using `to_json`.
-///  - Executes reqwest blocking client inside `tokio::task::block_in_place` to avoid blocking async runtime.
-///  - Returns `{ ok: bool, status?: number, body?: string, error?: string }`.
-fn inject_t_runtime(ctx: &mut Context, action_name: &str) {
-
-    // =========================================================
-    // t.log(...)  — unsafe by design (Boa requirement)
-    // =========================================================
-    let action = action_name.to_string();
-
-    let t_log_native = unsafe {
-        NativeFunction::from_closure(move |_this, args, _ctx| {
-            let mut parts = Vec::new();
-
-            for arg in args {
-                parts.push(arg.display().to_string());
-            }
-
-            println!(
-                "{} {}",
-                blue("[Titan]"),
-                gray(&format!("\x1b[90mlog({})\x1b[0m\x1b[97m: {}\x1b[0m", action, parts.join(" ")))
-            );
-
-            Ok(JsValue::undefined())
-        })
-    };
-
-    // =========================================================
-    // t.fetch(...) — no capture, safe fn pointer
-    // =========================================================
-    let t_fetch_native = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        // -----------------------------
-        // 1. URL (required)
-        // -----------------------------
-        let url = match args.get(0) {
-            Some(v) => v.to_string(ctx)?.to_std_string_escaped(),
-            None => {
-                return Err(JsError::from_native(
-                    boa_engine::JsNativeError::typ()
-                        .with_message("t.fetch(url[, options]): url is required"),
-                ));
-            }
-        };
-
-        // -----------------------------
-        // 2. Options (optional, JSON-only)
-        // -----------------------------
-        let opts_js = args.get(1).cloned().unwrap_or(JsValue::Null);
-
-        let opts_json = match opts_js.to_json(ctx) {
-            Ok(v) => v,
-            Err(_) => Value::Object(serde_json::Map::new()),
-        };
-
-        let method = opts_json
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("GET")
-            .to_string();
-
-            let body_opt = opts_json.get("body").map(|v| {
-                if v.is_string() {
-                    v.as_str().unwrap().to_string()
-                } else {
-                    serde_json::to_string(v).unwrap_or_default()
-                }
-            });
-            
-
-        let mut header_pairs = Vec::new();
-        if let Some(Value::Object(map)) = opts_json.get("headers") {
-            for (k, v) in map {
-                if let Some(val) = v.as_str() {
-                    header_pairs.push((k.clone(), val.to_string()));
-                }
-            }
-        }
-
-        // -----------------------------
-        // 3. Blocking HTTP (safe fallback)
-        // -----------------------------
-        let out_json = task::block_in_place(move || {
-            let client = Client::builder()
-           .use_rustls_tls()
-            .tcp_nodelay(true)
-            .build()
-            .unwrap();
-
-
-            let mut req = client.request(method.parse().unwrap_or(reqwest::Method::GET), &url);
-
-            if !header_pairs.is_empty() {
-                let mut headers = HeaderMap::new();
-                for (k, v) in header_pairs {
-                    if let (Ok(name), Ok(val)) = (
-                        HeaderName::from_bytes(k.as_bytes()),
-                        HeaderValue::from_str(&v),
-                    ) {
-                        headers.insert(name, val);
-                    }
-                }
-                req = req.headers(headers);
-            }
-
-            if let Some(body) = body_opt {
-                req = req.body(body);
-            }
-
-            match req.send() {
-                Ok(resp) => serde_json::json!({
-                    "ok": true,
-                    "status": resp.status().as_u16(),
-                    "body": resp.text().unwrap_or_default()
-                }),
-                Err(e) => serde_json::json!({
-                    "ok": false,
-                    "error": e.to_string()
-                }),
-            }
-        });
-
-        // -----------------------------
-        // 4. JSON → JsValue (NO undefined fallback)
-        // -----------------------------
-        match JsValue::from_json(&out_json, ctx) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(boa_engine::JsNativeError::error()
-                .with_message(format!("t.fetch: JSON conversion failed: {}", e))
-                .into()),
-        }
-    });
-
-    // =========================================================
-    // t.jwt
-    // =========================================================
-    let t_jwt_sign = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        // payload (must be object)
-        let mut payload = args.get(0)
-            .and_then(|v| v.to_json(ctx).ok())
-            .and_then(|v| v.as_object().cloned())
-            .ok_or_else(|| {
-                JsError::from_native(
-                    boa_engine::JsNativeError::typ()
-                        .with_message("t.jwt.sign(payload, secret[, options])"),
-                )
-            })?;
-    
-        // secret
-        let secret = args.get(1)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-
-        if let Some(opts) = args.get(2) {
-            if let Ok(Value::Object(opts)) = opts.to_json(ctx) {
-                if let Some(exp) = opts.get("expiresIn") {
-                    let seconds = match exp {
-                        Value::Number(n) => n.as_u64(),
-                        Value::String(s) => parse_expires_in(s),
-                     _ => None,
-                    };
-
-            if let Some(sec) = seconds {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-
-                payload.insert(
-                    "exp".to_string(),
-                    Value::Number(serde_json::Number::from(now + sec)),
-                );
-            }
-        }
-    }
-}
-
-        let token = encode(
-            &Header::default(),
-            &Value::Object(payload),
-            &EncodingKey::from_secret(secret.as_bytes()),
-        )
-        .map_err(|e| {
-            JsError::from_native(
-                boa_engine::JsNativeError::error().with_message(e.to_string()),
-            )
-        })?;
-    
-        Ok(JsValue::from(js_string!(token)))
-    });
-    
-    let t_jwt_verify = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let token = args.get(0)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-        let secret = args.get(1)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-        let mut validation = Validation::default();
-        validation.validate_exp = true;
-    
-        let data = decode::<Value>(
-            &token,
-            &DecodingKey::from_secret(secret.as_bytes()),
-            &validation,
-        )
-        .map_err(|_| {
-            JsError::from_native(
-                boa_engine::JsNativeError::error()
-                    .with_message("Invalid or expired JWT"),
-            )
-        })?;
-    
-        JsValue::from_json(&data.claims, ctx).map_err(|e| e.into())
-    });
-    
-
-    
-    // =========================================================
-    // t.password
-    // =========================================================
-    let t_password_hash = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let password = args.get(0)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-        let hashed = hash(password, DEFAULT_COST)
-            .map_err(|e| JsError::from_native(
-                boa_engine::JsNativeError::error().with_message(e.to_string())
-            ))?;
-    
-            Ok(JsValue::from(js_string!(hashed)))
-    });
-
-    let t_password_verify = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let password = args.get(0)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-        let hash_str = args.get(1)
-            .and_then(|v| v.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_default();
-    
-        let ok = verify(password, &hash_str).unwrap_or(false);
-    
-        Ok(JsValue::from(ok))
-    });
-
-   
-    
-
-    // =========================================================
-    // Build global `t`
-    // =========================================================
-    let realm = ctx.realm().clone();
-
-    let jwt_obj = ObjectInitializer::new(ctx)
-    .property(js_string!("sign"), t_jwt_sign.to_js_function(&realm), Attribute::all())
-    .property(js_string!("verify"), t_jwt_verify.to_js_function(&realm), Attribute::all())
-    .build();
-
-    let password_obj = ObjectInitializer::new(ctx)
-    .property(js_string!("hash"), t_password_hash.to_js_function(&realm), Attribute::all())
-    .property(js_string!("verify"), t_password_verify.to_js_function(&realm), Attribute::all())
-    .build();
-
-    let t_obj = ObjectInitializer::new(ctx)
-        .property(
-            js_string!("log"),
-            t_log_native.to_js_function(&realm),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("fetch"),
-            t_fetch_native.to_js_function(&realm),
-            Attribute::all(),
-        )    
-        .property(js_string!("jwt"), jwt_obj, Attribute::all())
-        .property(js_string!("password"), password_obj, Attribute::all())
-        .build();
-
-    ctx.global_object()
-        .set(js_string!("t"), JsValue::from(t_obj), false, ctx)
-        .expect("set global t");
-}
-
-
-// Dynamic Matcher (Core Logic)
-
-fn match_dynamic_route(
-    method: &str,
-    path: &str,
-    routes: &[DynamicRoute],
-) -> Option<(String, HashMap<String, String>)> {
-    let path_segments: Vec<&str> =
-        path.trim_matches('/').split('/').collect();
-
-    for route in routes {
-        if route.method != method {
-            continue;
-        }
-
-        let pattern_segments: Vec<&str> =
-            route.pattern.trim_matches('/').split('/').collect();
-
-        if pattern_segments.len() != path_segments.len() {
-            continue;
-        }
-
-        let mut params = HashMap::new();
-        let mut matched = true;
-
-        for (pat, val) in pattern_segments.iter().zip(path_segments.iter()) {
-            if pat.starts_with(':') {
-                let inner = &pat[1..];
-
-                let (name, ty) = inner
-                    .split_once('<')
-                    .map(|(n, t)| (n, t.trim_end_matches('>')))
-                    .unwrap_or((inner, "string"));
-
-                let valid = match ty {
-                    "number" => val.parse::<i64>().is_ok(),
-                    "string" => true,
-                    _ => false,
-                };
-
-                if !valid {
-                    matched = false;
-                    break;
-                }
-
-                params.insert(name.to_string(), (*val).to_string());
-            } else if pat != val {
-                matched = false;
-                break;
-            }
-        }
-
-        if matched {
-            return Some((route.action.clone(), params));
-        }
-    }
-
-    None
 }
 
 // Root/dynamic handlers -----------------------------------------------------
@@ -574,9 +84,17 @@ async fn dynamic_handler_inner(
         .unwrap_or_default();
 
     // ---------------------------
-    // BODY
+    // HEADERS & BODY
     // ---------------------------
-    let body_bytes = match to_bytes(req.into_body(), usize::MAX).await {
+    let (parts, body) = req.into_parts();
+    
+    let headers = parts
+        .headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect::<HashMap<String, String>>();
+
+    let body_bytes = match to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(_) => {
             return (
@@ -669,7 +187,19 @@ async fn dynamic_handler_inner(
         .unwrap();
 
     let action_path = actions_dir.join(format!("{}.jsbundle", action_name));
-    let js_code = fs::read_to_string(&action_path).unwrap();
+    let js_code = match fs::read_to_string(&action_path) {
+        Ok(c) => c,
+        Err(_) => {
+             // Handle missing bundle gracefully
+             return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Action bundle not found",
+                    "action": action_name
+                })),
+            ).into_response()
+        }
+    };
 
     // ---------------------------
     // ENV
@@ -677,6 +207,8 @@ async fn dynamic_handler_inner(
     let env_json = std::env::vars()
         .map(|(k, v)| (k, Value::String(v)))
         .collect::<serde_json::Map<_, _>>();
+
+
 
     // ---------------------------
     // JS EXECUTION
@@ -688,6 +220,7 @@ async fn dynamic_handler_inner(
             body: {},
             method: "{}",
             path: "{}",
+            headers: {},
             params: {},
             query: {}
         }};
@@ -698,6 +231,7 @@ async fn dynamic_handler_inner(
         body_json.to_string(),
         method,
         path,
+        serde_json::to_string(&headers).unwrap(),
         serde_json::to_string(&params).unwrap(),
         serde_json::to_string(&query).unwrap(),
         js_code,
@@ -705,7 +239,7 @@ async fn dynamic_handler_inner(
     );
 
     let mut ctx = Context::default();
-    inject_t_runtime(&mut ctx, &action_name);
+    inject_t_runtime(&mut ctx, &action_name, &state.project_root);
     let result = match ctx.eval(Source::from_bytes(&injected)) {
         Ok(v) => v,
         Err(err) => {
@@ -763,7 +297,6 @@ async fn dynamic_handler_inner(
     };
     
     
-
     // ---------------------------
     // FINAL LOG
     // ---------------------------
