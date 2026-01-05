@@ -370,21 +370,21 @@ function updateTitan() {
     // ----------------------------------------------------------
     // 1. Update titan/ runtime folder
     // ----------------------------------------------------------
-    fs.rmSync(projectTitan, { recursive: true, force: true });
+    fs.rmSync(projectTitan, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
     copyDir(templateTitan, projectTitan);
     console.log(green("✔ Updated titan/ runtime"));
 
     // ----------------------------------------------------------
     // 2. Update entire server/ folder (authoritative overwrite)
     // ----------------------------------------------------------
-    fs.rmSync(projectServer, { recursive: true, force: true });
+    fs.rmSync(projectServer, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
     copyDir(templateServer, projectServer);
     console.log(green("✔ Updated server/ (Cargo.toml + src/)"));
 
     // ----------------------------------------------------------
     // 3. Update project-level config files
     // ----------------------------------------------------------
-    [".gitignore", ".dockerignore", "Dockerfile"].forEach((file) => {
+    [".gitignore", ".dockerignore", "Dockerfile", "titan.d.ts"].forEach((file) => {
         const src = path.join(templatesRoot, file);
         const dest = path.join(root, file);
 
