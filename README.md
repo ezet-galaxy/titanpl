@@ -11,7 +11,7 @@
 # Notice
 
 💙 **Enjoy development mode `titan dev`**
-💟 **Titan Planet docs: https://titandocs.online/docs**
+💟 **Titan Planet docs:** https://titan-docs-ez.vercel.app/docs
 🚀 **CLI: `titan` is now the canonical command. `tit` remains supported as an alias.**
 
 ---
