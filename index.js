@@ -415,6 +415,11 @@ function createExtension(name) {
         }
     };
 
+    const idxPath = path.join(target, "index.js");
+    const readmePath = path.join(target, "README.md");
+    const pkgPath = path.join(target, "package.json");
+    const cargoPath = path.join(target, "native", "Cargo.toml");
+
     replaceAll(path.join(target, "titan.json"));
     replaceAll(idxPath);
     replaceAll(readmePath);
