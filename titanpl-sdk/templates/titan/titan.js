@@ -54,32 +54,43 @@ const t = {
   },
 
   async start(port = 3000, msg = "") {
-    console.log(cyan("[Titan] Bundling actions..."));
-    await bundle();
+    try {
+      console.log(cyan("[Titan] Preparing runtime..."));
+      await bundle();
 
-    const base = path.join(process.cwd(), "server");
-    fs.mkdirSync(base, { recursive: true });
+      const base = path.join(process.cwd(), "server");
+      if (!fs.existsSync(base)) {
+        fs.mkdirSync(base, { recursive: true });
+      }
 
-    fs.writeFileSync(
-      path.join(base, "routes.json"),
-      JSON.stringify(
-        {
-          __config: { port },
-          routes,
-          __dynamic_routes: Object.values(dynamicRoutes).flat()
-        },
-        null,
-        2
-      )
-    );
+      const routesPath = path.join(base, "routes.json");
+      const actionMapPath = path.join(base, "action_map.json");
 
-    fs.writeFileSync(
-      path.join(base, "action_map.json"),
-      JSON.stringify(actionMap, null, 2)
-    );
+      fs.writeFileSync(
+        routesPath,
+        JSON.stringify(
+          {
+            __config: { port },
+            routes,
+            __dynamic_routes: Object.values(dynamicRoutes).flat()
+          },
+          null,
+          2
+        )
+      );
 
-    console.log(green(`Titan: routes.json + action_map.json written -> ${base}`));
-    if (msg) console.log(cyan(msg));
+      fs.writeFileSync(
+        actionMapPath,
+        JSON.stringify(actionMap, null, 2)
+      );
+
+      console.log(green("✔ Titan metadata written successfully"));
+      if (msg) console.log(cyan(msg));
+
+    } catch (e) {
+      console.error(`\x1b[31m[Titan] Build Error: ${e.message}\x1b[0m`);
+      process.exit(1);
+    }
   }
 };
 

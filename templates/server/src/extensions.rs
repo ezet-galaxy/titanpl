@@ -84,7 +84,7 @@ pub fn load_project_extensions(root: PathBuf) {
     }
     
     if node_modules.exists() {
-        for entry in WalkDir::new(&node_modules).min_depth(1).max_depth(2) {
+        for entry in WalkDir::new(&node_modules).follow_links(true).min_depth(1).max_depth(4) {
             let entry = match entry { Ok(e) => e, Err(_) => continue };
             if entry.file_type().is_file() && entry.file_name() == "titan.json" {
                 let dir = entry.path().parent().unwrap();

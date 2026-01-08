@@ -94,4 +94,5 @@ const t = {
   }
 };
 
+globalThis.t = t;
 export default t;
