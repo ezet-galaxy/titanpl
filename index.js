@@ -168,7 +168,7 @@ function initProject(name) {
     console.log(green("✔ Titan project created!"));
     console.log(cyan("Installing dependencies..."));
 
-    execSync(`npm install esbuild --silent`, {
+    execSync(`npm install esbuild chokidar --silent`, {
         cwd: target,
         stdio: "inherit",
     });

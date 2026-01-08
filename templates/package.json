@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "esbuild": "^0.27.2"
+  }
+}
