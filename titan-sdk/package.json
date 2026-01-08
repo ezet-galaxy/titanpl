@@ -1,0 +1,12 @@
+{
+    "name": "titan-sdk",
+    "version": "0.0.1",
+    "description": "SDK for creating Titan extensions",
+    "main": "index.js",
+    "type": "module",
+    "types": "index.d.ts",
+    "bin": {
+        "titan-sdk": "./bin/run.js"
+    },
+    "license": "ISC"
+}

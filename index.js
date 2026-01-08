@@ -78,15 +78,20 @@ const TITAN_VERSION = pkg.version;
 /* -------------------------------------------------------
  * Utils
  * ----------------------------------------------------- */
-function copyDir(src, dest) {
+function copyDir(src, dest, excludes = []) {
     fs.mkdirSync(dest, { recursive: true });
 
     for (const file of fs.readdirSync(src)) {
+        // Skip excluded files/folders
+        if (excludes.includes(file)) {
+            continue;
+        }
+
         const srcPath = path.join(src, file);
         const destPath = path.join(dest, file);
 
         if (fs.lstatSync(srcPath).isDirectory()) {
-            copyDir(srcPath, destPath);
+            copyDir(srcPath, destPath, excludes);
         } else {
             fs.copyFileSync(srcPath, destPath);
         }
@@ -101,6 +106,7 @@ function help() {
 ${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
 
 ${green("titan init <project>")}   Create new Titan project
+${green("titan create ext <name>")} Create new Titan extension
 ${green("titan dev")}              Dev mode (hot reload)
 ${green("titan build")}            Build production Rust server
 ${green("titan start")}            Start production binary
@@ -131,9 +137,9 @@ function initProject(name) {
     console.log(cyan(`Creating Titan project → ${target}`));
 
     // ----------------------------------------------------------
-    // 1. Copy full template directory
+    // 1. Copy full template directory (excluding extension folder)
     // ----------------------------------------------------------
-    copyDir(templateDir, target);
+    copyDir(templateDir, target, ["extension"]);
 
     // ----------------------------------------------------------
     // 2. Explicitly install dotfiles
@@ -367,19 +373,222 @@ function updateTitan() {
 
 
 /* -------------------------------------------------------
+ * CREATE EXTENSION
+ * ----------------------------------------------------- */
+function createExtension(name) {
+    if (!name) {
+        console.log(red("Usage: titan create ext <name>"));
+        return;
+    }
+
+
+    const folderName = name;
+
+    const target = path.join(process.cwd(), folderName);
+    const templateDir = path.join(__dirname, "templates", "extension");
+
+    if (fs.existsSync(target)) {
+        console.log(yellow(`Folder already exists: ${target}`));
+        return;
+    }
+
+    if (!fs.existsSync(templateDir)) {
+        console.log(red(`Extension template not found at ${templateDir}`));
+        return;
+    }
+
+    console.log(cyan(`Creating Titan extension → ${target}`));
+
+    // 1. Copy template
+    copyDir(templateDir, target);
+
+    // 2. Process templates (replace {{name}})
+    const title = name;
+
+    // 2a. titan.json
+    const titJsonPath = path.join(target, "titan.json");
+    if (fs.existsSync(titJsonPath)) {
+        let content = fs.readFileSync(titJsonPath, "utf8");
+        content = content.replace(/{{name}}/g, title);
+        fs.writeFileSync(titJsonPath, content);
+    }
+
+    // 2b. index.js
+    const idxPath = path.join(target, "index.js");
+    if (fs.existsSync(idxPath)) {
+        let content = fs.readFileSync(idxPath, "utf8");
+        content = content.replace(/{{name}}/g, title);
+        fs.writeFileSync(idxPath, content);
+    }
+
+    // 2c. README.md
+    const readmePath = path.join(target, "README.md");
+    if (fs.existsSync(readmePath)) {
+        let content = fs.readFileSync(readmePath, "utf8");
+        content = content.replace(/{{name}}/g, title);
+        fs.writeFileSync(readmePath, content);
+    }
+
+    // 2d. package.json
+    const pkgPath = path.join(target, "package.json");
+    if (fs.existsSync(pkgPath)) {
+        let content = fs.readFileSync(pkgPath, "utf8");
+        content = content.replace(/{{name}}/g, title);
+        fs.writeFileSync(pkgPath, content);
+    }
+
+    // 2e. native/Cargo.toml
+    const cargoPath = path.join(target, "native", "Cargo.toml");
+    if (fs.existsSync(cargoPath)) {
+        let content = fs.readFileSync(cargoPath, "utf8");
+        content = content.replace(/{{name}}/g, title);
+        fs.writeFileSync(cargoPath, content);
+    }
+
+    console.log(cyan("Installing dependencies..."));
+    try {
+        execSync("npm install", { cwd: target, stdio: "inherit" });
+    } catch (e) {
+        console.log(yellow("Warning: Failed to install dependencies. You may need to run `npm install` manually."));
+    }
+
+    console.log(green("✔ Extension created!"));
+    console.log(`
+Next steps:
+  cd ${name}
+  # If you have native code:
+  cd native && cargo build --release
+  # To test your extension
+  titan run ext
+`);
+}
+
+function runExtension() {
+    const cwd = process.cwd();
+    const manifestPath = path.join(cwd, "titan.json");
+
+    if (!fs.existsSync(manifestPath)) {
+        console.log(red("Error: titan.json not found. Are you in an extension folder?"));
+        return;
+    }
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const name = manifest.name;
+    console.log(cyan(`Preparing to run extension: ${name}`));
+
+    // 1. Build Native if exists
+    const nativeDir = path.join(cwd, "native");
+    if (fs.existsSync(nativeDir)) {
+        console.log(cyan("Building native module..."));
+        try {
+            execSync("cargo build --release", { cwd: nativeDir, stdio: "inherit" });
+        } catch (e) {
+            console.log(red("Native build failed."));
+            return;
+        }
+    }
+
+    // 2. Setup Temporary Runner
+    const runnerDir = path.join(cwd, ".titan_runner");
+    if (fs.existsSync(runnerDir)) {
+        fs.rmSync(runnerDir, { recursive: true, force: true });
+    }
+
+    // We need to create a project environment. 
+    // We can use the templates stored in __dirname
+    const templateDir = path.join(__dirname, "templates");
+
+    console.log(cyan("Setting up test harness..."));
+    fs.mkdirSync(runnerDir);
+
+    // Copy templates/app -> runner/app
+    const runnerApp = path.join(runnerDir, "app");
+    copyDir(path.join(templateDir, "app"), runnerApp);
+
+    // Copy templates/server -> runner/server
+    const runnerServer = path.join(runnerDir, "server");
+    copyDir(path.join(templateDir, "server"), runnerServer);
+
+    // Create a dummy app.js that uses the extension
+    const appJsContent = `
+    const extensionName = "${name}";
+    t.log("TestRunner", "Loading extension: " + extensionName);
+    
+    // Access the extension
+    if (t[extensionName]) {
+        t.log("TestRunner", "Extension found on 't'!");
+        if (t[extensionName].hello) {
+             t[extensionName].hello("Titan User");
+        }
+        if (t[extensionName].calc) {
+             const res = t[extensionName].calc(10, 50);
+             t.log("TestRunner", "Calc Result (10+50): " + res);
+        }
+    } else {
+        t.log("TestRunner", "ERROR: Extension not found on 't'");
+    }
+    `;
+    fs.writeFileSync(path.join(runnerApp, "app.js"), appJsContent);
+
+    // 3. Link Extension
+    // We need to simulate 'node_modules/extension_name'
+    const runnerNodeModules = path.join(runnerDir, "node_modules");
+    fs.mkdirSync(runnerNodeModules, { recursive: true });
+
+    const extLinkPath = path.join(runnerNodeModules, name);
+    // On Windows, symlinks require special permissions, usually. 
+    // Junctions are safer for directories.
+    try {
+        fs.symlinkSync(cwd, extLinkPath, "junction");
+    } catch (e) {
+        // Fallback to copy if symlink fails
+        console.log(yellow("Symlink failed, copying extension..."));
+        copyDir(cwd, extLinkPath);
+    }
+
+    console.log(cyan("Building test harness server... (this may take a minute)"));
+    try {
+        execSync("cargo build --release", { cwd: runnerServer, stdio: "inherit" });
+    } catch (e) {
+        console.log(red("Failed to build test server."));
+        return;
+    }
+
+    // 5. Run it
+    const isWin = process.platform === "win32";
+    const bin = isWin ? "titan-server.exe" : "titan-server";
+    const exe = path.join(runnerServer, "target", "release", bin);
+
+    console.log(bold(green("\n>>> STARTING EXTENSION TEST >>>\n")));
+    try {
+        // Run inside the runner directory so it finds app/, server/, etc.
+        execSync(`"${exe}"`, { cwd: runnerDir, stdio: "inherit" });
+    } catch (e) {
+        console.log(red("\nTest ended with error or was stopped."));
+    }
+}
+
+/* -------------------------------------------------------
  * ROUTER
  * ----------------------------------------------------- */
-switch (cmd) {
-    case "init": initProject(args[1]); break;
-    case "dev": devServer(); break;
-    case "build": buildProd(); break;
-    case "start": startProd(); break;
-    case "update": updateTitan(); break;
-    case "--version":
-    case "-v":
-    case "version":
-        console.log(cyan(`Titan v${TITAN_VERSION}`));
-        break;
-    default:
-        help();
+// "titan create ext <name>" -> args = ["create", "ext", "calc_ext"]
+if (cmd === "create" && args[1] === "ext") {
+    createExtension(args[2]);
+} else if (cmd === "run" && args[1] === "ext") {
+    runExtension();
+} else {
+    switch (cmd) {
+        case "init": initProject(args[1]); break;
+        case "dev": devServer(); break;
+        case "build": buildProd(); break;
+        case "start": startProd(); break;
+        case "update": updateTitan(); break;
+        case "--version":
+        case "-v":
+        case "version":
+            console.log(cyan(`Titan v${TITAN_VERSION}`));
+            break;
+        default:
+            help();
+    }
 }

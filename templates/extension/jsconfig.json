@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "module": "commonjs",
+        "target": "es2021",
+        "checkJs": false,
+        "allowJs": true,
+        "moduleResolution": "node"
+    },
+    "include": [
+        "index.js",
+        "node_modules/titan-sdk/index.d.ts"
+    ]
+}

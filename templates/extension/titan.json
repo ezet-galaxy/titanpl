@@ -1,0 +1,18 @@
+{
+    "name": "{{name}}",
+    "main": "index.js",
+    "description": "A Titan extension",
+    "native": {
+        "path": "native/target/release/{{name}}_native.dll",
+        "functions": {
+            "add": {
+                "symbol": "add",
+                "parameters": [
+                    "f64",
+                    "f64"
+                ],
+                "result": "f64"
+            }
+        }
+    }
+}
