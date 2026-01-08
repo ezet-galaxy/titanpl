@@ -1,12 +1,24 @@
 {
     "name": "titan-sdk",
-    "version": "0.0.1",
-    "description": "SDK for creating Titan extensions",
+    "version": "0.0.3",
+    "description": "Developer SDK and Type Definitions for Titan Planet — the high-performance Rust-powered JavaScript backend framework. Includes IntelliSense support and extension building tools.",
     "main": "index.js",
     "type": "module",
     "types": "index.d.ts",
     "bin": {
         "titan-sdk": "./bin/run.js"
     },
+    "keywords": [
+        "titan",
+        "titan-planet",
+        "titan-sdk",
+        "ezetgalaxy",
+        "types",
+        "typescript",
+        "intellisense",
+        "sdk",
+        "backend-sdk",
+        "extension-development"
+    ],
     "license": "ISC"
 }
