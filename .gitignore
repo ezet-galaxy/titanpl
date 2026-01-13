@@ -13,3 +13,6 @@ server/action_map.json
 
 .env
 .vscode
+# mkctx - generated context
+mkctx/
+mkctx.config.json
