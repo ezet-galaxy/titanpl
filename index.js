@@ -155,7 +155,6 @@ function initProject(name) {
 
         if (fs.existsSync(src)) {
             fs.copyFileSync(src, dest);
-            console.log(green(`✔ Added ${destName}`));
         }
     }
 

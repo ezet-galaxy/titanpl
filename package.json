@@ -46,7 +46,7 @@
   "scripts": {
     "build": "echo \"No build step\"",
     "test": "echo \"No tests specified\"",
-    "test_titan_init": "./scripts/test_titan_init.js"
+    "test_titan_init": "node scripts/test_titan_init.js"
   },
   "dependencies": {
     "chokidar": "^5.0.0",

@@ -1,5 +1,5 @@
 {
-  "name": "{{name}}",
+  "name": "titanpl",
   "version": "1.0.0",
   "description": "A Titan Planet server",
   "type": "module",
