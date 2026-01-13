@@ -6,6 +6,9 @@ const root = process.cwd();
 const actionsDir = path.join(root, "app", "actions");
 const outDir = path.join(root, "server", "actions");
 
+/**
+ * Bundle all actions (JS and TS) using esbuild
+ */
 export async function bundle() {
   console.log("[Titan] Bundling actions...");
 
@@ -13,20 +16,27 @@ export async function bundle() {
 
   // Clean old bundles
   for (const file of fs.readdirSync(outDir)) {
-    fs.unlinkSync(path.join(outDir, file));
+    if (file.endsWith(".jsbundle")) {
+      fs.unlinkSync(path.join(outDir, file));
+    }
   }
 
-  const files = fs.readdirSync(actionsDir).filter(f => f.endsWith(".js") || f.endsWith(".ts"));
+  // Support both .js and .ts files
+  const files = fs
+    .readdirSync(actionsDir)
+    .filter((f) => /\.(js|ts)$/.test(f) && !f.endsWith(".d.ts"));
+
+  if (files.length === 0) {
+    console.log("[Titan] No actions found to bundle.");
+    return;
+  }
 
   for (const file of files) {
     const actionName = path.basename(file, path.extname(file));
-
     const entry = path.join(actionsDir, file);
-
-    // Rust runtime expects `.jsbundle` extension — consistent with previous design
     const outfile = path.join(outDir, actionName + ".jsbundle");
 
-    console.log(`[Titan] Bundling ${entry} → ${outfile}`);
+    console.log(`[Titan] Bundling ${file} → ${actionName}.jsbundle`);
 
     await esbuild.build({
       entryPoints: [entry],
@@ -36,29 +46,41 @@ export async function bundle() {
       globalName: "__titan_exports",
       platform: "neutral",
       target: "es2020",
+
+      // TypeScript support
+      loader: {
+        ".ts": "ts",
+        ".js": "js",
+      },
+
+      // Strip types, no need for declaration files
+      tsconfigRaw: {
+        compilerOptions: {
+          experimentalDecorators: true,
+          useDefineForClassFields: true,
+        },
+      },
+
       banner: {
-        js: "const defineAction = (fn) => fn;"
+        js: "const defineAction = (fn) => fn;",
       },
 
       footer: {
         js: `
-    (function () {
-      const fn =
-        __titan_exports["${actionName}"] ||
-        __titan_exports.default;
-    
-      if (typeof fn !== "function") {
-        throw new Error("[Titan] Action '${actionName}' not found or not a function");
-      }
-    
-      globalThis["${actionName}"] = fn;
-    })();
-    `
-      }
+(function () {
+  const fn =
+    __titan_exports["${actionName}"] ||
+    __titan_exports.default;
+
+  if (typeof fn !== "function") {
+    throw new Error("[Titan] Action '${actionName}' not found or not a function");
+  }
+
+  globalThis["${actionName}"] = fn;
+})();
+`,
+      },
     });
-
-
-
   }
 
   console.log("[Titan] Bundling finished.");

@@ -1,10 +1,18 @@
 {
   "compilerOptions": {
+    "target": "ES2020",
     "module": "ESNext",
-    "target": "ESNext",
-    "checkJs": true,
-    "allowJs": true,
     "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "lib": ["ES2020"],
+    "types": ["node"],
     "baseUrl": ".",
     "paths": {
       "@actions/*": ["./app/actions/*"],
@@ -13,8 +21,10 @@
     "typeRoots": ["./types", "./node_modules/@types"]
   },
   "include": [
-    "app/**/*",
-    "titan/**/*",
+    "app/**/*.ts",
+    "app/**/*.js",
+    "titan/**/*.ts",
+    "titan/**/*.js",
     "types/**/*.d.ts"
   ],
   "exclude": [

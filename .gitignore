@@ -11,5 +11,15 @@ server/titan/*.jsbundle
 server/routes.json
 server/action_map.json
 
+# build artifacts
+build/
+
 .env
 .vscode
+
+# testing
+coverage/
+
+# mkctx - generated context
+mkctx/
+mkctx.config.json

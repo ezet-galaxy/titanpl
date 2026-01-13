@@ -44,11 +44,22 @@
     "super-backend"
   ],
   "scripts": {
+    "init": "rm -rf build && node index.js init build",
+    "init:ts": "rm -rf build && node index.js init build --ts",
     "build": "echo \"No build step\"",
-    "test": "echo \"No tests specified\""
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:cov": "vitest run --coverage",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
     "esbuild": "^0.27.2"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.17",
+    "@vitest/ui": "^4.0.17",
+    "vitest": "^4.0.17"
   }
 }

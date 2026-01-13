@@ -32,7 +32,6 @@ function wasInvokedAsTit() {
         if (raw) {
             const cfg = JSON.parse(raw);
             if (cfg.original && Array.isArray(cfg.original)) {
-                // e.g. ["tit", "dev"]
                 const first = cfg.original[0];
                 if (first && first.includes("tit") && !first.includes("titan")) {
                     return true;
@@ -82,7 +81,6 @@ function copyDir(src, dest, excludes = []) {
     fs.mkdirSync(dest, { recursive: true });
 
     for (const file of fs.readdirSync(src)) {
-        // Skip excluded files/folders
         if (excludes.includes(file)) {
             continue;
         }
@@ -105,13 +103,14 @@ function help() {
     console.log(`
 ${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
 
-${green("titan init <project>")}   Create new Titan project
-${green("titan create ext <name>")} Create new Titan extension
-${green("titan dev")}              Dev mode (hot reload)
-${green("titan build")}            Build production Rust server
-${green("titan start")}            Start production binary
-${green("titan update")}           Update Titan engine
-${green("titan --version")}        Show Titan CLI version
+${green("titan init <project>")}        Create new Titan project (JavaScript)
+${green("titan init <project> --ts")}   Create new Titan project (TypeScript)
+${green("titan create ext <n>")}        Create new Titan extension
+${green("titan dev")}                   Dev mode (hot reload)
+${green("titan build")}                 Build production Rust server
+${green("titan start")}                 Start production binary
+${green("titan update")}                Update Titan engine
+${green("titan --version")}             Show Titan CLI version
 
 ${yellow("Note: `tit` is supported as a legacy alias.")}
 `);
@@ -122,10 +121,11 @@ ${yellow("Note: `tit` is supported as a legacy alias.")}
  * ----------------------------------------------------- */
 function initProject(name) {
     if (!name) {
-        console.log(red("Usage: titan init <project>"));
+        console.log(red("Usage: titan init <project> [--ts]"));
         return;
     }
 
+    const useTypeScript = args.includes("--ts");
     const target = path.join(process.cwd(), name);
     const templateDir = path.join(__dirname, "templates");
 
@@ -135,15 +135,44 @@ function initProject(name) {
     }
 
     console.log(cyan(`Creating Titan project → ${target}`));
+    if (useTypeScript) {
+        console.log(cyan("Using TypeScript template"));
+    }
 
-    // ----------------------------------------------------------
     // 1. Copy full template directory (excluding extension folder)
-    // ----------------------------------------------------------
     copyDir(templateDir, target, ["extension"]);
 
-    // ----------------------------------------------------------
-    // 2. Explicitly install dotfiles
-    // ----------------------------------------------------------
+    // 2. Handle TypeScript vs JavaScript
+    const appDir = path.join(target, "app");
+
+    if (useTypeScript) {
+        const appJs = path.join(appDir, "app.js");
+        const helloJs = path.join(appDir, "actions", "hello.js");
+
+        if (fs.existsSync(appJs)) fs.unlinkSync(appJs);
+        if (fs.existsSync(helloJs)) fs.unlinkSync(helloJs);
+
+        const tsconfigSrc = path.join(templateDir, "tsconfig.json");
+        const tsconfigDest = path.join(target, "tsconfig.json");
+        if (fs.existsSync(tsconfigSrc)) {
+            fs.copyFileSync(tsconfigSrc, tsconfigDest);
+            console.log(green("✔ Added tsconfig.json"));
+        }
+
+        const jsconfigDest = path.join(target, "jsconfig.json");
+        if (fs.existsSync(jsconfigDest)) fs.unlinkSync(jsconfigDest);
+    } else {
+        const appTs = path.join(appDir, "app.ts");
+        const helloTs = path.join(appDir, "actions", "hello.ts");
+
+        if (fs.existsSync(appTs)) fs.unlinkSync(appTs);
+        if (fs.existsSync(helloTs)) fs.unlinkSync(helloTs);
+
+        const tsconfigDest = path.join(target, "tsconfig.json");
+        if (fs.existsSync(tsconfigDest)) fs.unlinkSync(tsconfigDest);
+    }
+
+    // 3. Explicitly install dotfiles
     const dotfiles = {
         "_gitignore": ".gitignore",
         "_dockerignore": ".dockerignore",
@@ -159,7 +188,6 @@ function initProject(name) {
         }
     }
 
-    // Dockerfile is safe as-is
     const dockerfileSrc = path.join(templateDir, "Dockerfile");
     if (fs.existsSync(dockerfileSrc)) {
         fs.copyFileSync(dockerfileSrc, path.join(target, "Dockerfile"));
@@ -172,6 +200,14 @@ function initProject(name) {
         cwd: target,
         stdio: "inherit",
     });
+
+    if (useTypeScript) {
+        execSync(`npm install -D typescript @types/node --silent`, {
+            cwd: target,
+            stdio: "inherit",
+        });
+        console.log(green("✔ TypeScript dependencies installed"));
+    }
 
     console.log(green("✔ Dependencies installed"));
     console.log(`
@@ -200,7 +236,6 @@ async function devServer() {
     });
 
     child.on("close", (code) => {
-        // Exit strictly if the dev script failed
         if (code !== 0) {
             process.exit(code);
         }
@@ -210,30 +245,76 @@ async function devServer() {
 /* -------------------------------------------------------
  * BUILD
  * ----------------------------------------------------- */
-function buildProd() {
+async function buildProd() {
     console.log(cyan("Titan: Building production output..."));
 
     const root = process.cwd();
-    const appJs = path.join(root, "app", "app.js");
     const serverDir = path.join(root, "server");
     const actionsOut = path.join(serverDir, "actions");
 
-    // BASIC CHECKS
-    if (!fs.existsSync(appJs)) {
-        console.log(red("ERROR: app/app.js not found."));
+    // Detect entry file (TS or JS)
+    const appTs = path.join(root, "app", "app.ts");
+    const appJs = path.join(root, "app", "app.js");
+
+    let entryFile = null;
+    let isTypeScript = false;
+
+    if (fs.existsSync(appTs)) {
+        entryFile = appTs;
+        isTypeScript = true;
+    } else if (fs.existsSync(appJs)) {
+        entryFile = appJs;
+    }
+
+    if (!entryFile) {
+        console.log(red("ERROR: app/app.ts or app/app.js not found."));
         process.exit(1);
     }
 
-    // ----------------------------------------------------
-    // 1) BUILD METADATA + BUNDLE ACTIONS (ONE TIME ONLY)
-    // ----------------------------------------------------
-    console.log(cyan("→ Building Titan metadata + bundling actions..."));
-    execSync("node app/app.js --build", { stdio: "inherit" });
+    // 1) BUILD METADATA + BUNDLE ACTIONS
+    console.log(cyan(`→ Building Titan metadata from ${isTypeScript ? "TypeScript" : "JavaScript"}...`));
 
-    // ensure actions directory exists
+    if (isTypeScript) {
+        const esbuild = await import("esbuild");
+        const outFile = path.join(root, ".titan", "app.compiled.mjs");
+
+        fs.mkdirSync(path.dirname(outFile), { recursive: true });
+
+        // Compile TS to JS WITHOUT bundling - just transform TypeScript
+        await esbuild.build({
+            entryPoints: [entryFile],
+            outfile: outFile,
+            format: "esm",
+            platform: "node",
+            target: "node18",
+            bundle: false, // Don't bundle, just transform TS -> JS
+            loader: { ".ts": "ts" },
+            tsconfigRaw: {
+                compilerOptions: {
+                    experimentalDecorators: true,
+                    useDefineForClassFields: true,
+                },
+            },
+        });
+
+        // Fix the import path in compiled file
+        let compiled = fs.readFileSync(outFile, "utf8");
+        const titanPath = path.join(root, "titan", "titan.js");
+        compiled = compiled.replace(
+            /from\s+["']\.\.\/titan\/titan\.js["']/g,
+            `from "${titanPath.replace(/\\/g, "/")}"`
+        );
+        fs.writeFileSync(outFile, compiled);
+
+        execSync(`node "${outFile}" --build`, { stdio: "inherit", cwd: root });
+    } else {
+        execSync("node app/app.js --build", { stdio: "inherit", cwd: root });
+    }
+
+    // Ensure actions directory exists
     fs.mkdirSync(actionsOut, { recursive: true });
 
-    // verify bundled actions exist
+    // Verify bundled actions exist
     const bundles = fs.readdirSync(actionsOut).filter(f => f.endsWith(".jsbundle"));
     if (bundles.length === 0) {
         console.log(red("ERROR: No actions bundled."));
@@ -247,9 +328,7 @@ function buildProd() {
 
     console.log(green("✔ Actions ready in server/actions"));
 
-    // ----------------------------------------------------
     // 2) BUILD RUST BINARY
-    // ----------------------------------------------------
     console.log(cyan("→ Building Rust release binary..."));
     execSync("cargo build --release", {
         cwd: serverDir,
@@ -273,7 +352,6 @@ function startProd() {
 /* -------------------------------------------------------
  * UPDATE
  * ----------------------------------------------------- */
-
 function updateTitan() {
     const root = process.cwd();
 
@@ -296,9 +374,7 @@ function updateTitan() {
 
     console.log(cyan("Updating Titan runtime and server..."));
 
-    // ----------------------------------------------------------
-    // 1. Update titan/ runtime (authoritative, safe to replace)
-    // ----------------------------------------------------------
+    // 1. Update titan/ runtime
     fs.rmSync(projectTitan, {
         recursive: true,
         force: true,
@@ -309,14 +385,11 @@ function updateTitan() {
     copyDir(templateTitan, projectTitan);
     console.log(green("✔ Updated titan/ runtime"));
 
-    // ----------------------------------------------------------
-    // 2. Update server/ WITHOUT deleting the folder
-    // ----------------------------------------------------------
+    // 2. Update server/
     if (!fs.existsSync(projectServer)) {
         fs.mkdirSync(projectServer);
     }
 
-    // 2a. Overwrite Cargo.toml
     const srcCargo = path.join(templateServer, "Cargo.toml");
     const destCargo = path.join(projectServer, "Cargo.toml");
 
@@ -325,7 +398,6 @@ function updateTitan() {
         console.log(green("✔ Updated server/Cargo.toml"));
     }
 
-    // 2b. Replace server/src only
     const projectSrc = path.join(projectServer, "src");
     const templateSrc = path.join(templateServer, "src");
 
@@ -341,8 +413,10 @@ function updateTitan() {
     copyDir(templateSrc, projectSrc);
     console.log(green("✔ Updated server/src/"));
 
-    // Root-level config files
-    [".gitignore", ".dockerignore", "Dockerfile", "jsconfig.json"].forEach((file) => {
+    // 3. Root-level config files
+    const isTypeScriptProject = fs.existsSync(path.join(root, "app", "app.ts"));
+
+    [".gitignore", ".dockerignore", "Dockerfile"].forEach((file) => {
         const src = path.join(templatesRoot, file);
         const dest = path.join(root, file);
 
@@ -352,9 +426,25 @@ function updateTitan() {
         }
     });
 
-    // app/titan.d.ts (JS typing contract)
+    if (isTypeScriptProject) {
+        const tsconfigSrc = path.join(templatesRoot, "tsconfig.json");
+        const tsconfigDest = path.join(root, "tsconfig.json");
+        if (fs.existsSync(tsconfigSrc)) {
+            fs.copyFileSync(tsconfigSrc, tsconfigDest);
+            console.log(green("✔ Updated tsconfig.json"));
+        }
+    } else {
+        const jsconfigSrc = path.join(templatesRoot, "jsconfig.json");
+        const jsconfigDest = path.join(root, "jsconfig.json");
+        if (fs.existsSync(jsconfigSrc)) {
+            fs.copyFileSync(jsconfigSrc, jsconfigDest);
+            console.log(green("✔ Updated jsconfig.json"));
+        }
+    }
+
+    // app/titan.d.ts
     const appDir = path.join(root, "app");
-    const srcDts = path.join(templateServer, "../app/titan.d.ts"); // templates/app/titan.d.ts
+    const srcDts = path.join(templatesRoot, "app", "titan.d.ts");
     const destDts = path.join(appDir, "titan.d.ts");
 
     if (fs.existsSync(srcDts)) {
@@ -366,24 +456,19 @@ function updateTitan() {
         console.log(green("✔ Updated app/titan.d.ts"));
     }
 
-
     console.log(bold(green("✔ Titan update complete")));
 }
-
-
 
 /* -------------------------------------------------------
  * CREATE EXTENSION
  * ----------------------------------------------------- */
 function createExtension(name) {
     if (!name) {
-        console.log(red("Usage: titan create ext <name>"));
+        console.log(red("Usage: titan create ext <n>"));
         return;
     }
 
-
     const folderName = name;
-
     const target = path.join(process.cwd(), folderName);
     const templateDir = path.join(__dirname, "templates", "extension");
 
@@ -399,10 +484,8 @@ function createExtension(name) {
 
     console.log(cyan(`Creating Titan extension → ${target}`));
 
-    // 1. Copy template
     copyDir(templateDir, target);
 
-    // 2. Process templates (replace {{name}})
     const title = name;
     const nativeName = title.replace(/-/g, "_");
 
@@ -467,7 +550,6 @@ function runExtension() {
 /* -------------------------------------------------------
  * ROUTER
  * ----------------------------------------------------- */
-// "titan create ext <name>" -> args = ["create", "ext", "calc_ext"]
 if (cmd === "create" && args[1] === "ext") {
     createExtension(args[2]);
 } else if (cmd === "run" && args[1] === "ext") {

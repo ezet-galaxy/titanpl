@@ -13,6 +13,7 @@
 💙 **Enjoy development mode `titan dev`**
 💟 **Titan Planet docs:** https://titan-docs-ez.vercel.app/docs
 🚀 **CLI: `titan` is now the canonical command. `tit` remains supported as an alias.**
+🆕 **NEW: TypeScript support! Use `titan init <project> --ts`**
 
 ---
 
@@ -22,12 +23,12 @@
 
 **JavaScript Simplicity. Rust Power. Zero Configuration.**
 
-Titan Planet is a JavaScript-first backend framework that embeds JS actions into a Rust + Axum server and ships as a single native binary. Routes are compiled to static metadata; only actions run in the embedded JS runtime. No Node.js. No event loop in production.
+Titan Planet is a JavaScript/TypeScript-first backend framework that embeds JS actions into a Rust + Axum server and ships as a single native binary. Routes are compiled to static metadata; only actions run in the embedded JS runtime. No Node.js. No event loop in production.
 
 You write **zero Rust**.
 Titan ships a full backend engine, dev server, bundler, router, action runtime, and Docker deploy pipeline — all powered by Rust under the hood.
 
-Titan = **JavaScript productivity × Rust performance × Zero DevOps**
+Titan = **JavaScript/TypeScript productivity × Rust performance × Zero DevOps**
 
 ---
 
@@ -37,15 +38,16 @@ Titan = **JavaScript productivity × Rust performance × Zero DevOps**
 | ------------------------------------ | ----- | ------------ | ------- | --------- |
 | Native binary output                 | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 | Rust-level performance               | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
-| Pure JavaScript developer experience | ✅ Yes | ✅ Yes        | ❌ No    | ❌ Partial |
+| Pure JS/TS developer experience      | ✅ Yes | ✅ Yes        | ❌ No    | ❌ Partial |
 | Zero-config Docker deploy            | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 | Action-based architecture            | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 | Hot reload dev server                | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
+| TypeScript support (esbuild)         | ✅ Yes | ✅ Yes        | ❌ No    | ✅ Yes     |
 
 Titan gives you:
 
 * Native speed
-* JS comfort
+* JS/TS comfort
 * Cloud-first deployment
 * Full environment variable support
 * Built-in HTTP client (`t.fetch`)
@@ -53,6 +55,7 @@ Titan gives you:
 * Instant hot reload
 * Zero configuration
 * Single deployable binary
+* **Full TypeScript support with esbuild**
 
 ---
 
@@ -73,7 +76,7 @@ Required for:
 
 * Titan CLI
 * esbuild
-* JS → Rust compilation pipeline
+* JS/TS → Rust compilation pipeline
 
 Verify:
 
@@ -94,7 +97,13 @@ npm install -g @ezetgalaxy/titan
 ### Create a new project
 
 ```bash
+# JavaScript project
 titan init my-app
+cd my-app
+titan dev
+
+# TypeScript project (NEW!)
+titan init my-app --ts
 cd my-app
 titan dev
 ```
@@ -102,10 +111,72 @@ titan dev
 Titan will:
 
 * Build routes
-* Bundle actions
+* Bundle actions (JS or TS via esbuild)
 * Start Rust dev server
 * Watch file changes
 * Trigger instant reload
+
+---
+
+# 🆕 TypeScript Support
+
+Titan now has **first-class TypeScript support** powered by esbuild. No extra configuration needed!
+
+### Creating a TypeScript Project
+
+```bash
+titan init my-app --ts
+```
+
+This creates a project with:
+- `app/app.ts` — Main entry point
+- `app/actions/*.ts` — TypeScript actions
+- `tsconfig.json` — Pre-configured TypeScript settings
+- Full type definitions for the Titan runtime
+
+### TypeScript Action Example
+
+```ts
+// app/actions/hello.ts
+
+interface HelloResponse {
+  message: string;
+  timestamp: number;
+}
+
+export const hello = defineAction((req: TitanRequest): HelloResponse => {
+  const name = req.body?.name || "World";
+
+  return {
+    message: `Hello from Titan, ${name}!`,
+    timestamp: Date.now(),
+  };
+});
+```
+
+### Type Definitions
+
+Titan provides complete type definitions for:
+
+- `TitanRequest<TBody, TParams, TQuery>` — Fully typed request object
+- `defineAction()` — Type-safe action definition
+- `t` — Runtime utilities (fetch, jwt, password, db, log)
+
+```ts
+// Full type inference
+export const getUser = defineAction((req: TitanRequest<never, { id: string }>) => {
+  const userId = req.params.id; // TypeScript knows this is string
+  return { userId };
+});
+```
+
+### How It Works
+
+1. **Development (`titan dev`)**: esbuild compiles TypeScript on-the-fly
+2. **Production (`titan build`)**: esbuild bundles and optimizes your TS code
+3. **Runtime**: Compiled JavaScript runs in the embedded V8 engine
+
+No `tsc` step. No separate build process. Just write TypeScript and run.
 
 ---
 
@@ -121,7 +192,8 @@ npm install -g @ezetgalaxy/titan@latest
 ```bash
 titan update
 ```
-* ``tit update`` will update and add new features in your Titan project
+* `titan update` will update and add new features in your Titan project
+* For TypeScript projects, it will also update `tsconfig.json` and type definitions
 
 
 # ✨ What Titan Can Do (New & Core Features)
@@ -133,14 +205,14 @@ Titan now includes a **complete runtime engine** with the following built-in cap
 * Static routes (`/`, `/health`)
 * Dynamic routes (`/user/:id<number>`)
 * Typed route parameters
-* Automatic method matching (GET / POST)
+* Automatic method matching (GET / POST / PUT / DELETE / PATCH)
 * Query parsing (`req.query`)
 * Body parsing (`req.body`)
 * Zero-config routing metadata generation
 
 ### 🧠 Action Runtime
 
-* JavaScript actions executed inside a Rust runtime (v8)
+* JavaScript/TypeScript actions executed inside a Rust runtime (v8)
 * Automatic action discovery and execution
 * No `globalThis` required anymore
 * Safe handling of `undefined` returns
@@ -151,6 +223,9 @@ Titan now includes a **complete runtime engine** with the following built-in cap
 
 * `t.fetch(...)` — built-in Rust-powered HTTP client
 * `t.log(...)` — sandboxed, action-scoped logging
+* `t.jwt.sign()` / `t.jwt.verify()` — JWT utilities
+* `t.password.hash()` / `t.password.verify()` — Password hashing
+* `t.db.connect()` — Database connections
 * Environment variable access (`process.env`)
 * No access to raw Node.js APIs (safe by default)
 
@@ -193,21 +268,25 @@ This object is:
 * Predictable
 * Serializable
 * Identical across dev & production
+* **Fully typed in TypeScript projects**
 
 ---
 
 ### 🔥 Developer Experience
 
 * Hot reload dev server (`titan dev`)
-* Automatic rebundling of actions
+* Automatic rebundling of actions (JS and TS)
 * Automatic Rust server restart
 * Colored request logs
 * Per-route timing metrics
 * Action-aware logs
+* **TypeScript compilation via esbuild (blazing fast)**
 
 Example runtime log:
 
 ```
+[Titan] Detected TypeScript project
+[Titan] Compiling app.ts with esbuild...
 [Titan] GET /user/90 → getUser (dynamic) in 0.42ms
 [Titan] log(getUser): Fetching user 90
 ```
@@ -216,12 +295,13 @@ Example runtime log:
 
 ### 🧨 Error Handling & Diagnostics
 
-* JavaScript runtime errors captured safely
+* JavaScript/TypeScript runtime errors captured safely
 * Action-aware error reporting
 * Line & column hints from runtime
 * Red-colored error logs
 * No server crashes on user mistakes
 * Safe fallback for `undefined` returns
+* **TypeScript type errors shown during compilation**
 
 ---
 
@@ -238,8 +318,7 @@ Example runtime log:
   * VPS
   * Kubernetes
 * No Node.js required in production
-
----
+* **TypeScript compiled at build time, not runtime**
 
 ---
 
@@ -258,9 +337,12 @@ Titan Planet isn't just a framework; it's an extensible platform. You can build 
 
 ### 🧱 Architecture Guarantees
 
-# 🧩 Example Action (Updated – No `globalThis` Needed)
+# 🧩 Example Action
+
+### JavaScript
 
 ```js
+// app/actions/getUser.js
 export function getUser(req) {
   t.log("User id:", req.params.id);
 
@@ -271,18 +353,55 @@ export function getUser(req) {
 }
 ```
 
-That’s it.
+### TypeScript
+
+```ts
+// app/actions/getUser.ts
+interface UserResponse {
+  id: number;
+  method: string;
+}
+
+export const getUser = defineAction((req: TitanRequest<never, { id: string }>): UserResponse => {
+  t.log("User id:", req.params.id);
+
+  return {
+    id: Number(req.params.id),
+    method: req.method
+  };
+});
+```
+
+That's it.
 No exports wiring. No globals. No boilerplate.
+**Full TypeScript support with zero configuration.**
+
+---
+
+# 📦 CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `titan init <project>` | Create new JavaScript project |
+| `titan init <project> --ts` | Create new TypeScript project |
+| `titan dev` | Start dev server with hot reload |
+| `titan build` | Build production Rust binary |
+| `titan start` | Start production binary |
+| `titan update` | Update Titan engine |
+| `titan create ext <name>` | Create new extension |
+| `titan run ext` | Run extension test harness |
+| `titan --version` | Show CLI version |
 
 ---
 
 # 📦 Version
 
-**Titan v26 — Stable**
+**Titan v27 — Stable**
 
 * Production-ready runtime
-* Safe JS execution
+* Safe JS/TS execution
 * Native Rust performance
 * Designed for cloud & AI workloads
+* **Full TypeScript support via esbuild**
 
 ---
