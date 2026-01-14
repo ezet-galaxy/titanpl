@@ -23,25 +23,24 @@ const bold = (t) => `\x1b[1m${t}\x1b[0m`;
 
 function getTitanVersion() {
     try {
-        // 1. Try resolving from node_modules (standard user case)
         const require = createRequire(import.meta.url);
-        // We look for @ezetgalaxy/titan/package.json
         const pkgPath = require.resolve("@ezetgalaxy/titan/package.json");
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-        return pkg.version;
+        return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
     } catch (e) {
         try {
-            // 2. Fallback for local dev (path to repo root)
-            const localPath = path.join(__dirname, "..", "..", "..", "package.json");
-            if (fs.existsSync(localPath)) {
-                const pkg = JSON.parse(fs.readFileSync(localPath, "utf-8"));
-                if (pkg.name === "@ezetgalaxy/titan") {
-                    return pkg.version;
+            // Check levels up to find the framework root
+            let cur = __dirname;
+            for (let i = 0; i < 5; i++) {
+                const pkgPath = path.join(cur, "package.json");
+                if (fs.existsSync(pkgPath)) {
+                    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+                    if (pkg.name === "@ezetgalaxy/titan") return pkg.version;
                 }
+                cur = path.join(cur, "..");
             }
         } catch (e2) { }
     }
-    return "0.1.0"; // Fallback
+    return "0.1.0";
 }
 
 let serverProcess = null;
@@ -75,56 +74,129 @@ async function killServer() {
     isKilling = false;
 }
 
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+let spinnerTimer = null;
+const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+let frameIdx = 0;
+
+function startSpinner(text) {
+    if (spinnerTimer) clearInterval(spinnerTimer);
+    process.stdout.write("\x1B[?25l"); // Hide cursor
+    spinnerTimer = setInterval(() => {
+        process.stdout.write(`\r  ${cyan(frames[frameIdx])} ${gray(text)}`);
+        frameIdx = (frameIdx + 1) % frames.length;
+    }, 80);
+}
+
+function stopSpinner(success = true, text = "") {
+    if (spinnerTimer) {
+        clearInterval(spinnerTimer);
+        spinnerTimer = null;
+    }
+    process.stdout.write("\r\x1B[K"); // Clear line
+    process.stdout.write("\x1B[?25h"); // Show cursor
+    if (text) {
+        if (success) {
+            console.log(`  ${green("✔")} ${green(text)}`);
+        } else {
+            console.log(`  ${red("✖")} ${red(text)}`);
+        }
+    }
+}
+
 async function startRustServer(retryCount = 0) {
-    const waitTime = retryCount > 0 ? 2000 : 1000;
+    const waitTime = retryCount > 0 ? 500 : 200;
 
     await killServer();
-    await new Promise(r => setTimeout(r, waitTime));
+    await delay(waitTime);
 
     const serverPath = path.join(process.cwd(), "server");
     const startTime = Date.now();
 
-    if (retryCount > 0) {
-        console.log(yellow(`[Titan] Retrying Rust server (Attempt ${retryCount})...`));
-    }
+    startSpinner("Stabilizing your app on its orbit...");
 
-    serverProcess = spawn("cargo", ["run", "--jobs", "1"], {
+    let isReady = false;
+    let stdoutBuffer = "";
+    let buildLogs = "";
+
+    // If it takes more than 15s, update the message
+    const slowTimer = setTimeout(() => {
+        if (!isReady && !isKilling) {
+            startSpinner("Still stabilizing... (the first orbit takes longer)");
+        }
+    }, 15000);
+
+    serverProcess = spawn("cargo", ["run", "--quiet"], {
         cwd: serverPath,
-        stdio: "inherit",
-        shell: true,
-        env: { ...process.env, CARGO_INCREMENTAL: "0" }
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CARGO_INCREMENTAL: "1" }
+    });
+
+    serverProcess.on("error", (err) => {
+        stopSpinner(false, "Failed to start orbit");
+        console.error(red(`[Titan] Error: ${err.message}`));
+    });
+
+    serverProcess.stderr.on("data", (data) => {
+        const str = data.toString();
+        if (isReady) {
+            process.stderr.write(data);
+        } else {
+            buildLogs += str;
+        }
+    });
+
+    serverProcess.stdout.on("data", (data) => {
+        const out = data.toString();
+
+        if (!isReady) {
+            stdoutBuffer += out;
+            if (stdoutBuffer.includes("Titan server running") || stdoutBuffer.includes("████████╗")) {
+                isReady = true;
+                clearTimeout(slowTimer);
+                stopSpinner(true, "Your app is now orbiting Titan Planet");
+                process.stdout.write(stdoutBuffer);
+                stdoutBuffer = "";
+            }
+        } else {
+            process.stdout.write(data);
+        }
     });
 
     serverProcess.on("close", async (code) => {
+        clearTimeout(slowTimer);
         if (isKilling) return;
         const runTime = Date.now() - startTime;
-        if (code !== 0 && code !== null && runTime < 15000 && retryCount < 5) {
-            await startRustServer(retryCount + 1);
-        } else if (code !== 0 && code !== null && retryCount >= 5) {
-            console.log(red(`[Titan] Server failed to start after multiple attempts.`));
+
+        if (code !== 0 && code !== null) {
+            stopSpinner(false, "Orbit stabilization failed");
+            if (!isReady) {
+                console.log(gray("\n--- Build Logs ---"));
+                console.log(buildLogs);
+                console.log(gray("------------------\n"));
+            }
+
+            if (runTime < 15000 && retryCount < 5) {
+                await delay(2000);
+                await startRustServer(retryCount + 1);
+            }
         }
     });
 }
 
 async function rebuild() {
-    // process.stdout.write(gray("[Titan] Preparing runtime... "));
-    const start = Date.now();
     try {
         execSync("node app/app.js", { stdio: "ignore" });
-        await bundle();
-        // console.log(green("Done"));
-        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        console.log(gray(`   A new orbit is ready for your app in ${elapsed}s`));
-        console.log(green(`   Your app is now orbiting Titan Planet`));
+        // bundle is called inside app.js (t.start)
     } catch (e) {
-        console.log(red("Failed"));
-        console.log(red("[Titan] Failed to prepare runtime. Check your app/app.js"));
+        stopSpinner(false, "Failed to prepare runtime");
+        console.log(red(`[Titan] Error: ${e.message}`));
     }
 }
 
 async function startDev() {
     const root = process.cwd();
-    // Check if Rust actions exist by looking for .rs files in app/actions
     const actionsDir = path.join(root, "app", "actions");
     let hasRust = false;
     if (fs.existsSync(actionsDir)) {
@@ -144,17 +216,15 @@ async function startDev() {
     if (fs.existsSync(path.join(root, ".env"))) {
         console.log(`  ${gray("Env:        ")} ${yellow("Loaded")}`);
     }
-    console.log(""); // Spacer
+    console.log("");
 
-    // FIRST BUILD
     try {
         await rebuild();
         await startRustServer();
     } catch (e) {
-        console.log(red("[Titan] Initial build failed. Waiting for changes..."));
+        // console.log(red("[Titan] Initial build failed. Waiting for changes..."));
     }
 
-    // ... watcher logic same as before but using color vars ...
     const watcher = chokidar.watch(["app", ".env"], {
         ignoreInitial: true,
         awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
@@ -164,26 +234,20 @@ async function startDev() {
     watcher.on("all", async (event, file) => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(async () => {
-            console.log(""); // Spacer before reload logs
-            if (file.includes(".env")) {
-                console.log(yellow("[Titan] Env Refreshed"));
-            } else {
-                console.log(cyan(`[Titan] Change: ${path.basename(file)}`));
-            }
             try {
                 await killServer();
                 await rebuild();
                 await startRustServer();
             } catch (e) {
-                console.log(red("[Titan] Build failed -- waiting for changes..."));
+                // console.log(red("[Titan] Build failed -- waiting for changes..."));
             }
-        }, 1000);
+        }, 300);
     });
 }
 
-// Handle graceful exit to release file locks
 async function handleExit() {
-    console.log("\n[Titan] Stopping server...");
+    stopSpinner();
+    console.log(gray("\n[Titan] Stopping server..."));
     await killServer();
     process.exit(0);
 }

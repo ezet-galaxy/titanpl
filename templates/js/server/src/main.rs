@@ -368,12 +368,7 @@ async fn main() -> Result<()> {
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
-    println!("\n\x1b[38;5;208m████████╗██╗████████╗ █████╗ ███╗   ██╗");
-    println!("╚══██╔══╝██║╚══██╔══╝██╔══██╗████╗  ██║");
-    println!("   ██║   ██║   ██║   ███████║██╔██╗ ██║");
-    println!("   ██║   ██║   ██║   ██╔══██║██║╚██╗██║");
-    println!("   ██║   ██║   ██║   ██║  ██║██║ ╚████║");
-    println!("   ╚═╝   ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝\x1b[0m\n");
+    
     println!(
         "\x1b[38;5;39mTitan server running at:\x1b[0m http://localhost:{}",
         port

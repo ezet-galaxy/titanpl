@@ -2,6 +2,29 @@
 
 All notable changes to the **Titan Planet** project will be documented in this file.
 
+## [26.8.2] - 2026-01-14
+
+### 🏎️ Performance Optimizations
+- **10x Faster Rust Reloads**:
+  - Enabled **Incremental Compilation** (`CARGO_INCREMENTAL: "1"`) for development builds.
+  - Enabled **Multi-core Compilation**: Removed restrictive CPU thread limits to fully utilize system resources.
+  - **Optimized Dev Profile**: Added a custom `[profile.dev]` to `Cargo.toml` with `opt-level = 0` and `debug = 1` for significantly faster linking times.
+- **Snappier Dev Loop**: 
+  - Reduced hot-reload stability threshold from 1000ms to **300ms**.
+  - Optimized the ready-signal detection to launch the server immediately after a successful build.
+
+### ✨ Developer Experience (DX) Overhaul
+- **Premium "Orbiting" Experience**:
+  - Replaced messy build logs with a sleek, custom animated **"Stabilizing" spinner**.
+  - Implemented **Silent Builds**: Cargo compilation noise is hidden by default and only automatically revealed if an error occurs.
+  - **Smart Log Forwarding**: ASCII art and runtime logs are now flawlessly flushed to the terminal as soon as the server is ready.
+- **Clean CLI**: Removed the Node.js `[DEP0190]` security warning by switching to direct process execution instead of shell-wrapping.
+
+### 🐛 Fixes
+- Fixed "Premature Orbiting": The dev server now waits for the server to be fully responsive before showing the success checkmark.
+- Improved version detection to correctly reflect the Titan CLI version across all project structures.
+- Fixed stuck spinner when `cargo` was not found in the path.
+
 ## [26.8.0] - 2026-01-14
 
 ### 🚀 New Features

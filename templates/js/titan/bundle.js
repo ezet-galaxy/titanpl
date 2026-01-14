@@ -28,7 +28,7 @@ async function bundleJs() {
   const files = fs.readdirSync(actionsDir).filter(f => f.endsWith(".js") || f.endsWith(".ts"));
   if (files.length === 0) return;
 
-  console.log(`[Titan] Bundling ${files.length} JS actions...`);
+  // console.log(`[Titan] Bundling ${files.length} JS actions...`);
 
   for (const file of files) {
     const actionName = path.basename(file, path.extname(file));
