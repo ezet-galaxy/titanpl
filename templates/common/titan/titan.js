@@ -2,14 +2,24 @@ import fs from "fs";
 import path from "path";
 import { bundle } from "./bundle.js";
 
-const cyan = (t) => `\x1b[36m${t}\x1b[0m`;
-const green = (t) => `\x1b[32m${t}\x1b[0m`;
+export const cyan = (t) => `\x1b[36m${t}\x1b[0m`;
+export const green = (t) => `\x1b[32m${t}\x1b[0m`;
 
-const routes = {};
-const dynamicRoutes = {};
-const actionMap = {};
+let routes = {};
+let dynamicRoutes = {};
+let actionMap = {};
 
-function addRoute(method, route) {
+// Helpers for testing
+export function getRoutes() { return routes; }
+export function getDynamicRoutes() { return dynamicRoutes; }
+export function getActionMap() { return actionMap; }
+export function resetRoutes() {
+  routes = {};
+  dynamicRoutes = {};
+  actionMap = {};
+}
+
+export function addRoute(method, route) {
   const key = `${method.toUpperCase()}:${route}`;
 
 
