@@ -6,6 +6,11 @@
   "titan": {
     "template": "js"
   },
+  "scripts": {
+    "start": "titan start",
+    "dev": "titan dev",
+    "build": "titan dev"
+  },
   "dependencies": {
     "chokidar": "^5.0.0",
     "esbuild": "^0.27.2"

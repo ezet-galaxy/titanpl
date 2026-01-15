@@ -10,6 +10,11 @@
     "chokidar": "^5.0.0",
     "esbuild": "^0.27.2"
   },
+  "scripts": {
+    "start": "titan start",
+    "dev": "titan dev",
+    "build": "titan dev"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   }
