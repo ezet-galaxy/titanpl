@@ -105,17 +105,17 @@ function copyDir(src, dest, excludes = []) {
  * ----------------------------------------------------- */
 function help() {
     console.log(`
-${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
+ ${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
 
-${green("titan init <project>")}   Create new Titan project
-${green("titan create ext <name>")} Create new Titan extension
-${green("titan dev")}              Dev mode (hot reload)
-${green("titan build")}            Build production Rust server
-${green("titan start")}            Start production binary
-${green("titan update")}           Update Titan engine
-${green("titan --version")}        Show Titan CLI version
+ ${green("titan init <project>")}   Create new Titan project
+ ${green("titan create ext <name>")} Create new Titan extension
+ ${green("titan dev")}              Dev mode (hot reload)
+ ${green("titan build")}            Build production Rust server
+ ${green("titan start")}            Start production binary
+ ${green("titan update")}           Update Titan engine
+ ${green("titan --version")}        Show Titan CLI version
 
-${yellow("Note: `tit` is supported as a legacy alias.")}
+ ${yellow("Note: `tit` is supported as a legacy alias.")}
 `);
 }
 
@@ -196,9 +196,14 @@ async function initProject(name, templateName) {
 
     const target = path.join(process.cwd(), projName);
     const templateDir = path.join(__dirname, "templates", selectedTemplate);
+    const commonDir = path.join(__dirname, "templates", "common");
 
     if (!fs.existsSync(templateDir)) {
         console.log(red(`Template '${selectedTemplate}' not found.`));
+        return;
+    }
+    if (!fs.existsSync(commonDir)) {
+        console.log(red(`Common template folder not found.`));
         return;
     }
 
@@ -212,12 +217,17 @@ async function initProject(name, templateName) {
     console.log(gray(`   Template: ${selectedTemplate}`));
 
     // ----------------------------------------------------------
-    // 1. Copy full template directory
+    // 1. Copy full COMMON directory (Base logic)
+    // ----------------------------------------------------------
+    copyDir(commonDir, target, ["_gitignore", "_dockerignore"]);
+
+    // ----------------------------------------------------------
+    // 2. Copy full SELECTED template directory (Overwrites/Adds specifics)
     // ----------------------------------------------------------
     copyDir(templateDir, target, ["_gitignore", "_dockerignore"]);
 
     // ----------------------------------------------------------
-    // 2. Explicitly install dotfiles
+    // 3. Explicitly install dotfiles from COMMON directory
     // ----------------------------------------------------------
     const dotfiles = {
         "_gitignore": ".gitignore",
@@ -225,7 +235,7 @@ async function initProject(name, templateName) {
     };
 
     for (const [srcName, destName] of Object.entries(dotfiles)) {
-        const src = path.join(templateDir, srcName);
+        const src = path.join(commonDir, srcName);
         const dest = path.join(target, destName);
 
         if (fs.existsSync(src)) {
