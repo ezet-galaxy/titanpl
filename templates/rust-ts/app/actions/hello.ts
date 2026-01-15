@@ -1,5 +1,9 @@
-export const hello = (req) => {
-   return {
-        message: `Hello from Titan ${req.body.name}`,
+interface HelloResponse {
+    message: string;
+}
+
+export const hello = (req: TitanRequest): HelloResponse => {
+    return {
+        message: `Hello from Titan ${req.body.name || "World"}`,
     };
 }

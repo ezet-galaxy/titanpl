@@ -23,3 +23,5 @@ test-apps/
 .vscode
 mkctx/
 mkctx.config.json
+
+build

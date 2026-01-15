@@ -1,11 +1,13 @@
 /**
  * TITAN TYPE DEFINITIONS
+ * ----------------------
+ * These types are globally available in your Titan project.
  */
 
 /**
  * The Titan Request Object passed to actions.
  */
-interface TitanRequest {
+declare interface TitanRequest {
     body: any;
     method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
     path: string;
@@ -83,20 +85,3 @@ declare const t: {
     };
 };
 
-// Declaring module for import t from "../titan/titan.js"
-declare module "*titan.js" {
-    export interface RouteHandler {
-        reply(value: any): void;
-        action(name: string): void;
-    }
-
-    export interface Titan {
-        get(route: string): RouteHandler;
-        post(route: string): RouteHandler;
-        log(module: string, msg: string): void;
-        start(port?: number, msg?: string): Promise<void>;
-    }
-
-    const t: Titan;
-    export default t;
-}
