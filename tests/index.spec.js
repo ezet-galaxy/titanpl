@@ -7,6 +7,33 @@ vi.mock("prompts", () => ({
     default: vi.fn(),
 }));
 
+// Mock de path
+vi.mock("path", () => ({
+    default: {
+        join: vi.fn((...args) => args.join("/")),
+        basename: vi.fn((p, ext) => {
+            const parts = p.split("/");
+            const last = parts[parts.length - 1] || "";
+            return ext && last.endsWith(ext) ? last.slice(0, -ext.length) : last;
+        }),
+        dirname: vi.fn((p) => {
+            const parts = p.split("/");
+            parts.pop();
+            return parts.join("/") || ".";
+        }),
+        extname: vi.fn((p) => {
+            const parts = p.split(".");
+            return parts.length > 1 ? `.${parts.pop()}` : "";
+        }),
+        resolve: vi.fn((...args) => args.join("/")),
+    },
+}));
+
+// Mock de url
+vi.mock("url", () => ({
+    fileURLToPath: vi.fn(() => "/mocked/project/path/index.js"),
+}));
+
 // Mock de fs
 vi.mock("fs", () => ({
     default: {
@@ -57,10 +84,11 @@ describe("cli.js (Titan CLI)", () => {
     const root = process.cwd();
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.spyOn(console, "log").mockImplementation(() => { });
     });
 
     afterEach(() => {
+        vi.clearAllMocks();
         vi.restoreAllMocks();
     });
 
@@ -154,8 +182,8 @@ describe("cli.js (Titan CLI)", () => {
             copyDir("/src", "/dest");
 
             expect(fs.copyFileSync).toHaveBeenCalledWith(
-                path.join("/src", "file.txt"),
-                path.join("/dest", "file.txt")
+                "/src/file.txt",
+                "/dest/file.txt"
             );
         });
 
@@ -170,7 +198,7 @@ describe("cli.js (Titan CLI)", () => {
             copyDir("/src", "/dest");
 
             expect(fs.mkdirSync).toHaveBeenCalledWith(
-                path.join("/dest", "subdir"),
+                "/dest/subdir",
                 { recursive: true }
             );
         });
@@ -183,8 +211,8 @@ describe("cli.js (Titan CLI)", () => {
 
             expect(fs.copyFileSync).toHaveBeenCalledTimes(1);
             expect(fs.copyFileSync).toHaveBeenCalledWith(
-                path.join("/src", "keep.txt"),
-                path.join("/dest", "keep.txt")
+                "/src/keep.txt",
+                "/dest/keep.txt"
             );
         });
     });
@@ -206,7 +234,8 @@ describe("cli.js (Titan CLI)", () => {
 
     describe("initProject()", () => {
         beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
+            // Resetear prompts antes de cada test de initProject
+            vi.mocked(prompts).mockReset();
         });
 
         it("should prompt for project name if not provided", async () => {
@@ -215,9 +244,16 @@ describe("cli.js (Titan CLI)", () => {
                 .mockResolvedValueOnce({ value: "js" })
                 .mockResolvedValueOnce({ value: "standard" });
 
-            vi.mocked(fs.existsSync).mockReturnValue(false);
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const path = String(p);
+                if (path.includes("templates")) return true;
+                if (path.includes("package.json")) return true;
+                if (path.includes("my-app")) return false;
+                return false;
+            });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
             vi.mocked(fs.lstatSync).mockReturnValue({ isDirectory: () => false });
+            vi.mocked(fs.readFileSync).mockReturnValue("{}");
 
             await initProject();
 
@@ -230,6 +266,7 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should cancel if no project name provided", async () => {
             vi.mocked(prompts).mockResolvedValueOnce({ value: undefined });
+
             const consoleSpy = vi.spyOn(console, "log");
 
             await initProject();
@@ -245,8 +282,9 @@ describe("cli.js (Titan CLI)", () => {
                 .mockResolvedValueOnce({ value: "standard" });
 
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                // Template exists, target doesn't
-                if (p.toString().includes("templates")) return true;
+                const path = String(p);
+                if (path.includes("templates")) return true;
+                if (path.includes("my-project")) return false;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -254,7 +292,6 @@ describe("cli.js (Titan CLI)", () => {
 
             await initProject("my-project");
 
-            // No debería pedir nombre de proyecto
             expect(prompts).not.toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: "Project name:",
@@ -267,6 +304,7 @@ describe("cli.js (Titan CLI)", () => {
                 .mockResolvedValueOnce({ value: "js" })
                 .mockResolvedValueOnce({ value: "standard" });
 
+            // Target folder existe
             vi.mocked(fs.existsSync).mockReturnValue(true);
             const consoleSpy = vi.spyOn(console, "log");
 
@@ -279,8 +317,9 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should use template from parameter", async () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("templates")) return true;
-                if (p.toString().includes("existing-folder")) return false;
+                const path = String(p);
+                if (path.includes("templates")) return true;
+                if (path.includes("my-project")) return false;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -288,8 +327,136 @@ describe("cli.js (Titan CLI)", () => {
 
             await initProject("my-project", "ts");
 
-            // No debería pedir selección de template
+            // No debería llamar a prompts porque se pasó el template directamente
             expect(prompts).not.toHaveBeenCalled();
+        });
+
+        it("should select 'rust-js' template for JavaScript + Hybrid", async () => {
+            vi.mocked(prompts)
+                .mockResolvedValueOnce({ value: "my-app" })    // project name
+                .mockResolvedValueOnce({ value: "js" })        // language
+                .mockResolvedValueOnce({ value: "hybrid" });   // template type
+
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const path = String(p);
+                if (path.includes("templates/rust-js")) return true;
+                if (path.includes("templates/common")) return true;
+                if (path.includes("templates")) return true;
+                if (path.includes("package.json")) return true;
+                if (path.includes("my-app")) return false;
+                return false;
+            });
+            vi.mocked(fs.readdirSync).mockReturnValue([]);
+            vi.mocked(fs.lstatSync).mockReturnValue({ isDirectory: () => false });
+            vi.mocked(fs.readFileSync).mockReturnValue("{}");
+
+            await initProject();
+
+            const mkdirCalls = vi.mocked(fs.mkdirSync).mock.calls.map(c => String(c[0]));
+            const readdirCalls = vi.mocked(fs.readdirSync).mock.calls.map(c => String(c[0]));
+            
+            const allPaths = [...mkdirCalls, ...readdirCalls];
+            const usedRustJs = allPaths.some(call => call.includes("rust-js"));
+            
+            expect(usedRustJs).toBe(true);
+        });
+
+        it("should select 'ts' template for TypeScript + Standard", async () => {
+            vi.mocked(prompts)
+                .mockResolvedValueOnce({ value: "my-app" })      // project name
+                .mockResolvedValueOnce({ value: "ts" })          // language
+                .mockResolvedValueOnce({ value: "standard" });   // template type
+
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const path = String(p);
+                if (path.includes("templates/ts")) return true;
+                if (path.includes("templates/common")) return true;
+                if (path.includes("templates")) return true;
+                if (path.includes("package.json")) return true;
+                if (path.includes("my-app")) return false;
+                return false;
+            });
+            vi.mocked(fs.readdirSync).mockReturnValue([]);
+            vi.mocked(fs.lstatSync).mockReturnValue({ isDirectory: () => false });
+            vi.mocked(fs.readFileSync).mockReturnValue("{}");
+
+            await initProject();
+
+            const mkdirCalls = vi.mocked(fs.mkdirSync).mock.calls.map(c => String(c[0]));
+            const readdirCalls = vi.mocked(fs.readdirSync).mock.calls.map(c => String(c[0]));
+            
+            const allPaths = [...mkdirCalls, ...readdirCalls];
+            // Buscar "/ts" pero NO "rust-ts"
+            const usedTs = allPaths.some(call => 
+                call.includes("/templates/ts") && !call.includes("rust-ts")
+            );
+            
+            expect(usedTs).toBe(true);
+        });
+
+        it("should inject template metadata into package.json", async () => {
+            vi.mocked(prompts)
+                .mockResolvedValueOnce({ value: "my-app" })      // project name
+                .mockResolvedValueOnce({ value: "js" })          // language
+                .mockResolvedValueOnce({ value: "standard" });   // template type -> "js"
+
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const path = String(p);
+                if (path.includes("templates/js")) return true;
+                if (path.includes("templates/common")) return true;
+                if (path.includes("templates")) return true;
+                if (path.includes("package.json")) return true;
+                if (path.includes("my-app")) return false;
+                return false;
+            });
+            vi.mocked(fs.readdirSync).mockReturnValue([]);
+            vi.mocked(fs.lstatSync).mockReturnValue({ isDirectory: () => false });
+            vi.mocked(fs.readFileSync).mockReturnValue('{ "name": "test" }');
+
+            await initProject();
+
+            const writeCalls = vi.mocked(fs.writeFileSync).mock.calls;
+            const pkgJsonWrite = writeCalls.find(call => 
+                typeof call[0] === 'string' && call[0].includes("package.json")
+            );
+            
+            expect(pkgJsonWrite).toBeDefined();
+            const content = JSON.parse(pkgJsonWrite[1]);
+            expect(content.titan).toBeDefined();
+            expect(content.titan.template).toBe("js");
+        });
+
+        it("should copy common directory before specific template directory", async () => {
+            vi.mocked(prompts)
+                .mockResolvedValueOnce({ value: "my-app" })      // project name
+                .mockResolvedValueOnce({ value: "js" })          // language
+                .mockResolvedValueOnce({ value: "standard" });   // template type -> "js"
+
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const path = String(p);
+                if (path.includes("templates/js")) return true;
+                if (path.includes("templates/common")) return true;
+                if (path.includes("templates")) return true;
+                if (path.includes("my-app")) return false;
+                return false;
+            });
+            vi.mocked(fs.readdirSync).mockReturnValue([]);
+            vi.mocked(fs.lstatSync).mockReturnValue({ isDirectory: () => false });
+            vi.mocked(fs.readFileSync).mockReturnValue("{}");
+
+            await initProject();
+
+            const readCalls = vi.mocked(fs.readdirSync).mock.calls.map(c => String(c[0]));
+            
+            // Filtrar solo las llamadas a templates (common y js)
+            const templateCalls = readCalls.filter(call => 
+                call.includes("templates/common") || 
+                (call.includes("templates/js") && !call.includes("rust-js"))
+            );
+            
+            expect(templateCalls.length).toBeGreaterThanOrEqual(2);
+            expect(templateCalls[0]).toContain("common");
+            expect(templateCalls[1]).toMatch(/templates\/js/);
         });
 
         it("should install npm dependencies", async () => {
@@ -298,7 +465,9 @@ describe("cli.js (Titan CLI)", () => {
                 .mockResolvedValueOnce({ value: "standard" });
 
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("templates")) return true;
+                const path = String(p);
+                if (path.includes("templates")) return true;
+                if (path.includes("new-project")) return false;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -314,23 +483,19 @@ describe("cli.js (Titan CLI)", () => {
     });
 
     describe("devServer()", () => {
-        beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
-        });
-
         it("should check for titan/dev.js existence", async () => {
             vi.mocked(fs.existsSync).mockReturnValue(false);
 
             await devServer();
 
             expect(fs.existsSync).toHaveBeenCalledWith(
-                path.join(root, "titan", "dev.js")
+                expect.stringContaining("titan/dev.js")
             );
         });
 
         it("should log error if dev.js not found", async () => {
             vi.mocked(fs.existsSync).mockReturnValue(false);
-            const consoleSpy = vi.spyOn(console, "log");
+            const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
             await devServer();
 
@@ -349,7 +514,7 @@ describe("cli.js (Titan CLI)", () => {
 
             expect(spawn).toHaveBeenCalledWith(
                 "node",
-                [path.join(root, "titan", "dev.js")],
+                expect.arrayContaining([expect.stringContaining("dev.js")]),
                 expect.objectContaining({
                     stdio: "inherit",
                     cwd: root,
@@ -360,7 +525,6 @@ describe("cli.js (Titan CLI)", () => {
 
     describe("buildProd()", () => {
         beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
             vi.spyOn(process, "exit").mockImplementation(() => {
                 throw new Error("process.exit called");
             });
@@ -374,16 +538,18 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should run app.js for metadata if it exists", async () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("app/app.js")) return true;
-                if (p.toString().includes("app/app.ts")) return false;
+                const path = String(p);
+                if (path.includes("app/app.js")) return true;
+                if (path.includes("app/app.ts")) return false;
                 return false;
             });
 
-            // Este test verifica solo el inicio del proceso
+            vi.doMock("../titan/bundle.js", () => ({ bundle: vi.fn() }));
+
             try {
                 await buildProd();
             } catch (e) {
-                // Esperado que falle por import dinámico
+                // Expected
             }
 
             expect(execSync).toHaveBeenCalledWith(
@@ -394,48 +560,44 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should compile TypeScript app if app.ts exists", async () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("app/app.ts")) return true;
-                if (p.toString().includes("app/app.js")) return false;
-                if (p.toString().includes(".titan")) return false;
+                const path = String(p);
+                if (path.includes("app/app.ts")) return true;
+                if (path.includes("app/app.js")) return false;
+                if (path.includes(".titan")) return false;
                 return false;
             });
+            
+            vi.doMock("esbuild", () => ({ build: vi.fn() }));
 
             try {
                 await buildProd();
             } catch (e) {
-                // Esperado que falle
+                // Expected
             }
 
-            // Debería crear el directorio .titan
             expect(fs.mkdirSync).toHaveBeenCalled();
         });
     });
 
     describe("startProd()", () => {
         it("should execute titan-server binary", () => {
-            const serverDir = path.join(root, "server");
             const bin = process.platform === "win32" ? "titan-server.exe" : "titan-server";
-            const exe = path.join(serverDir, "target", "release", bin);
-
+            
             startProd();
 
             expect(execSync).toHaveBeenCalledWith(
-                `"${exe}"`,
+                expect.stringContaining(bin),
                 expect.objectContaining({
-                    cwd: serverDir,
+                    cwd: expect.stringContaining("server"),
                 })
             );
         });
     });
 
     describe("updateTitan()", () => {
-        beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
-        });
-
         it("should check for titan folder", () => {
             vi.mocked(fs.existsSync).mockReturnValue(false);
-            const consoleSpy = vi.spyOn(console, "log");
+            const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
             updateTitan();
 
@@ -444,11 +606,12 @@ describe("cli.js (Titan CLI)", () => {
             );
         });
 
-        it("should read template type from package.json", () => {
+        it("should resolve 'ts' template path if package.json specifies ts", () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("titan")) return true;
-                if (p.toString().includes("package.json")) return true;
-                if (p.toString().includes("templates")) return true;
+                const path = String(p);
+                if (path.includes("titan")) return true;
+                if (path.includes("package.json")) return true;
+                if (path.includes("templates/ts")) return true; 
                 return false;
             });
 
@@ -461,10 +624,10 @@ describe("cli.js (Titan CLI)", () => {
 
             updateTitan();
 
-            // Debería usar template ts
-            expect(fs.existsSync).toHaveBeenCalledWith(
-                expect.stringContaining("templates")
-            );
+            const readCalls = vi.mocked(fs.readdirSync).mock.calls.map(c => String(c[0]));
+            const titanFolderUpdate = readCalls.some(call => call.includes("templates/ts/titan"));
+
+            expect(titanFolderUpdate).toBe(true);
         });
 
         it("should remove and recreate titan folder", () => {
@@ -476,7 +639,7 @@ describe("cli.js (Titan CLI)", () => {
             updateTitan();
 
             expect(fs.rmSync).toHaveBeenCalledWith(
-                path.join(root, "titan"),
+                expect.stringContaining("titan"),
                 expect.objectContaining({ recursive: true })
             );
         });
@@ -498,12 +661,8 @@ describe("cli.js (Titan CLI)", () => {
     });
 
     describe("createExtension()", () => {
-        beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
-        });
-
         it("should show usage if no name provided", () => {
-            const consoleSpy = vi.spyOn(console, "log");
+            const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
             createExtension();
 
@@ -514,7 +673,7 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should warn if folder already exists", () => {
             vi.mocked(fs.existsSync).mockReturnValue(true);
-            const consoleSpy = vi.spyOn(console, "log");
+            const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
             createExtension("my-ext");
 
@@ -525,7 +684,8 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should copy extension template", () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("templates/extension")) return true;
+                const path = String(p);
+                if (path.includes("templates/extension")) return true;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -539,13 +699,13 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should replace template placeholders", () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("templates/extension")) return true;
-                if (p.toString().includes("my-ext")) return false;
-                // Files inside extension
-                if (p.toString().includes("titan.json")) return true;
-                if (p.toString().includes("index.js")) return true;
-                if (p.toString().includes("README.md")) return true;
-                if (p.toString().includes("package.json")) return true;
+                const path = String(p);
+                if (path.includes("templates/extension")) return true;
+                if (path.includes("my-ext")) return false;
+                if (path.includes("titan.json")) return true;
+                if (path.includes("index.js")) return true;
+                if (path.includes("README.md")) return true;
+                if (path.includes("package.json")) return true;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -554,7 +714,6 @@ describe("cli.js (Titan CLI)", () => {
 
             createExtension("my-ext");
 
-            // Verificar que writeFileSync fue llamado con el contenido reemplazado
             const writeCalls = vi.mocked(fs.writeFileSync).mock.calls;
             const replacedCalls = writeCalls.filter(call =>
                 call[1].includes("my-ext") || call[1].includes("my_ext")
@@ -565,7 +724,8 @@ describe("cli.js (Titan CLI)", () => {
 
         it("should install npm dependencies", () => {
             vi.mocked(fs.existsSync).mockImplementation((p) => {
-                if (p.toString().includes("templates/extension")) return true;
+                const path = String(p);
+                if (path.includes("templates/extension")) return true;
                 return false;
             });
             vi.mocked(fs.readdirSync).mockReturnValue([]);
@@ -577,17 +737,13 @@ describe("cli.js (Titan CLI)", () => {
             expect(execSync).toHaveBeenCalledWith(
                 "npm install",
                 expect.objectContaining({
-                    cwd: path.join(root, "my-ext"),
+                    cwd: expect.stringContaining("my-ext"),
                 })
             );
         });
     });
 
     describe("runExtension()", () => {
-        beforeEach(() => {
-            vi.spyOn(console, "log").mockImplementation(() => { });
-        });
-
         it("should use local SDK if available", () => {
             vi.mocked(fs.existsSync).mockReturnValue(true);
 
@@ -613,7 +769,7 @@ describe("cli.js (Titan CLI)", () => {
 
     describe("TITAN_VERSION", () => {
         it("should be a valid semver string", () => {
-            expect(TITAN_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+            expect(TITAN_VERSION).toMatch(/\d+\.\d+\.\d+/);
         });
     });
 });

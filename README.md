@@ -44,6 +44,7 @@ Titan = **TS/JS productivity × Rust performance × Zero DevOps**
 | Zero-config Docker deploy            | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 | Action-based architecture            | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 | Hot reload dev server                | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
+| Modular, Isolated Templates          | ✅ Yes | ❌ No         | ❌ No    | ❌ No      |
 
 ---
 
@@ -59,14 +60,25 @@ npm install -g @ezetgalaxy/titan
 ```
 
 ### 3. Initialize & Run
+Titan guides you through selecting the perfect architecture for your needs.
+
 ```bash
 titan init my-app
-# Follow the interactive prompt to choose:
-# - JavaScript (Standard)
-# - TypeScript (Strict)
-# - Rust + JavaScript (Beta)
-# - Rust + TypeScript (Beta)
 ```
+
+**Select your language:**
+1.  `JavaScript` (Fast, lightweight)
+2.  `TypeScript` (Strict, typed)
+
+**Select your architecture:**
+1.  `Standard` (Pure JS/TS)
+2.  `Rust + JS/TS (Hybrid)` (High-performance native actions)
+
+This creates one of four isolated environments:
+*   **Standard JS:** Lightweight server, zero Rust overhead.
+*   **Standard TS:** Strict server, zero Rust overhead.
+*   **Hybrid JS:** Full Rust integration + JS flexibility.
+*   **Hybrid TS:** Full Rust integration + TS strictness.
 
 Inside your project:
 ```bash

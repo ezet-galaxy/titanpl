@@ -2,8 +2,10 @@ interface HelloResponse {
     message: string;
 }
 
-export const hello = (req: TitanRequest): HelloResponse => {
+import { defineAction } from "../../titan/titan";
+
+export const hello = defineAction((req): HelloResponse => {
     return {
         message: `Hello from Titan ${req.body.name || "World"}`,
     };
-}
+});

@@ -1,4 +1,7 @@
-import t from "../titan/titan.js";
+import t from "../titan/titan";
+
+
+
 
 t.post("/hello").action("hello") // pass a json payload { "name": "titan" }
 

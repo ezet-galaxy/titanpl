@@ -188,7 +188,7 @@ export async function initProject(name, templateName) {
         const arch = archRes.value;
 
         if (lang === 'js') {
-            selectedTemplate = arch === 'standard' ? 'js' : 'rust';
+            selectedTemplate = arch === 'standard' ? 'js' : 'rust-js'; 
         } else {
             selectedTemplate = arch === 'standard' ? 'ts' : 'rust-ts';
         }
@@ -217,12 +217,12 @@ export async function initProject(name, templateName) {
     console.log(gray(`   Template: ${selectedTemplate}`));
 
     // ----------------------------------------------------------
-    // 1. Copy full COMMON directory (Base logic)
+    // 1. Copy full COMMON directory
     // ----------------------------------------------------------
     copyDir(commonDir, target, ["_gitignore", "_dockerignore"]);
 
     // ----------------------------------------------------------
-    // 2. Copy full SELECTED template directory (Overwrites/Adds specifics)
+    // 2. Copy full SELECTED template directory
     // ----------------------------------------------------------
     copyDir(templateDir, target, ["_gitignore", "_dockerignore"]);
 
@@ -243,10 +243,18 @@ export async function initProject(name, templateName) {
         }
     }
 
-    // Dockerfile is safe as-is
-    const dockerfileSrc = path.join(templateDir, "Dockerfile");
-    if (fs.existsSync(dockerfileSrc)) {
-        fs.copyFileSync(dockerfileSrc, path.join(target, "Dockerfile"));
+    const pkgPath = path.join(target, "package.json");
+    
+    if (fs.existsSync(pkgPath)) {
+        try {
+            const pkgContent = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+            if (!pkgContent.titan) pkgContent.titan = {};
+            pkgContent.titan.template = selectedTemplate;
+            fs.writeFileSync(pkgPath, JSON.stringify(pkgContent, null, 2));
+            console.log(gray(`   Metadata set: ${selectedTemplate}`));
+        } catch (e) {
+            console.log(yellow("⚠ Could not write template metadata to package.json"));
+        }
     }
 
     console.log(green("✔ Project structure created"));
@@ -407,7 +415,7 @@ export function updateTitan() {
     const projectServer = path.join(root, "server");
     const projectPkg = path.join(root, "package.json");
 
-    let templateType = "js"; // Default
+    let templateType = "js";
     if (fs.existsSync(projectPkg)) {
         try {
             const pkg = JSON.parse(fs.readFileSync(projectPkg, "utf-8"));
@@ -426,10 +434,8 @@ export function updateTitan() {
         return;
     }
 
-    if (!fs.existsSync(templateServer)) {
-        console.log(red(`CLI seems corrupted or incomplete.`));
-        console.log(red(`Expected server template at: ${templateServer}`));
-        console.log(yellow(`If you are running from npx, try clearing cache or installing a specific version.`));
+    if (!fs.existsSync(templatesRoot)) {
+        console.log(red(`Template type '${templateType}' not found in CLI templates.`));
         return;
     }
 
@@ -438,15 +444,18 @@ export function updateTitan() {
     // ----------------------------------------------------------
     // 1. Update titan/ runtime (authoritative, safe to replace)
     // ----------------------------------------------------------
-    fs.rmSync(projectTitan, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 500,
-    });
-
-    copyDir(templateTitan, projectTitan);
-    console.log(green("✔ Updated titan/ runtime"));
+    if (fs.existsSync(templateTitan)) {
+        fs.rmSync(projectTitan, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 500,
+        });
+        copyDir(templateTitan, projectTitan);
+        console.log(green("✔ Updated titan/ runtime"));
+    } else {
+        console.log(yellow(`⚠ No titan/ folder found in template '${templateType}', skipping.`));
+    }
 
     // ----------------------------------------------------------
     // 2. Update server/ WITHOUT deleting the folder
@@ -468,17 +477,18 @@ export function updateTitan() {
     const projectSrc = path.join(projectServer, "src");
     const templateSrc = path.join(templateServer, "src");
 
-    if (fs.existsSync(projectSrc)) {
-        fs.rmSync(projectSrc, {
-            recursive: true,
-            force: true,
-            maxRetries: 10,
-            retryDelay: 500,
-        });
+    if (fs.existsSync(templateSrc)) {
+        if (fs.existsSync(projectSrc)) {
+            fs.rmSync(projectSrc, {
+                recursive: true,
+                force: true,
+                maxRetries: 10,
+                retryDelay: 500,
+            });
+        }
+        copyDir(templateSrc, projectSrc);
+        console.log(green("✔ Updated server/src/"));
     }
-
-    copyDir(templateSrc, projectSrc);
-    console.log(green("✔ Updated server/src/"));
 
     // Root-level config files
     const rootFiles = {
@@ -500,15 +510,16 @@ export function updateTitan() {
 
     // app/titan.d.ts (JS typing contract)
     const appDir = path.join(root, "app");
-    const srcDts = path.join(templateServer, "../app/titan.d.ts"); // templates/app/titan.d.ts
+    const srcDts = path.join(templateServer, "../app/titan.d.ts"); 
+    const fallbackDts = path.join(templatesRoot, "app", "titan.d.ts"); 
+    const finalDtsSrc = fs.existsSync(srcDts) ? srcDts : (fs.existsSync(fallbackDts) ? fallbackDts : null);
     const destDts = path.join(appDir, "titan.d.ts");
 
-    if (fs.existsSync(srcDts)) {
+    if (finalDtsSrc) {
         if (!fs.existsSync(appDir)) {
             fs.mkdirSync(appDir);
         }
-
-        fs.copyFileSync(srcDts, destDts);
+        fs.copyFileSync(finalDtsSrc, destDts);
         console.log(green("✔ Updated app/titan.d.ts"));
     }
 

@@ -4,7 +4,7 @@
   "description": "A Titan Planet server",
   "type": "module",
   "titan": {
-    "template": "js"
+    "template": "rust-js"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
