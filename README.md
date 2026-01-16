@@ -76,7 +76,7 @@ titan dev
 
 You'll see the Titan Dev Server spin up:
 ```
-  Titan Planet   v26.9.0   [ Dev Mode ]
+  Titan Planet   v26.9.1   [ Dev Mode ]
 
   Type:        Rust + TS Actions
   Hot Reload:  Enabled
@@ -93,34 +93,45 @@ You'll see the Titan Dev Server spin up:
 
 Titan is unique because it allows you to write endpoints in **JavaScript, TypeScript, and Rust** within the same project.
 
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| **Standard JavaScript** | ✅ Stable | Production Ready |
+| **Standard TypeScript** | 🚧 Beta | **Ready for Dev**, Production Under Testing |
+| **Rust + JS (Hybrid)** | 🧪 Experimental | **Dev Only**, Production Under Testing |
+| **Rust + TS (Hybrid)** | 🧪 Experimental | **Dev Only**, Production Under Testing |
+
 ### 🔵 TypeScript Actions (`app/actions/hello.ts`)
 Fully typed, strict, and auto-compiled.
-```typescript
-import { Context } from '@ezetgalaxy/titan';
 
-export function run(req: Context) {
+```typescript
+import { defineAction } from "../../titan/titan";
+
+interface HelloResponse {
+    message: string;
+    user_name: string;
+}
+
+// "defineAction" provides automatic type inference for "req"
+export const hello = defineAction((req): HelloResponse => {
     t.log("Handling request with strict types...");
-    
-    // Type checking allows safe property access
-    const user = req.body as { name: string };
-    
+
     return { 
         message: "Hello from TypeScript!",
-        user_name: user.name 
+        user_name: req.body.name || "Guest"
     };
-}
+});
 ```
 
 ### 🟡 JavaScript Actions (`app/actions/hello.js`)
 Perfect for business logic, rapid prototyping, and IO-bound tasks.
 ```javascript
-export function run(req) {
+export const hello = defineAction((req) => {
     t.log("Handling user request...");
     return { 
         message: "Hello from JavaScript!",
         user_id: req.params.id 
     };
-}
+});
 ```
 
 ### 🔴 Rust Actions (Beta)
@@ -212,4 +223,3 @@ Titan is **not** a Node.js framework. It is a Rust server that speaks JavaScript
 * Strict TypeScript Support
 * Native Rust Performance
 * Zero-Config Cloud Deployment
-

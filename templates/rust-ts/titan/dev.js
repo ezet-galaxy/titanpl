@@ -231,11 +231,11 @@ async function rebuild() {
                 bundle: true,
                 platform: "node",
                 format: "esm",
-                packages: "external",
+                external: ["fs", "path", "esbuild", "chokidar", "typescript"],
                 logLevel: "silent"
             });
 
-            execSync(`node "${compiledApp}"`, { stdio: "ignore" });
+            execSync(`node "${compiledApp}"`, { stdio: "inherit" });
         } else {
             execSync("node app/app.js", { stdio: "ignore" });
         }

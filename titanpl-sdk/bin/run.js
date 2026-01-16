@@ -53,85 +53,89 @@ function run() {
         }
     }
 
-    // 3. Create a Test Harness (Mini Titan Project)
+    // 3. Setup Test Harness (Mini Titan Project)
     const runDir = path.join(cwd, ".titan_test_run");
-    if (fs.existsSync(runDir)) {
-        try {
-            fs.rmSync(runDir, {
-                recursive: true,
-                force: true,
-                maxRetries: 10,
-                retryDelay: 100
-            });
-        } catch (e) {
-            console.log(yellow(`Warning: Could not fully clean ${runDir}. Proceeding anyway...`));
-        }
-    }
+    const isFirstRun = !fs.existsSync(runDir);
 
-    // Ensure runDir exists (sometimes rmSync + mkdirSync fails on Windows due to locks)
-    if (!fs.existsSync(runDir)) {
+    if (isFirstRun) {
+        console.log(cyan("Initializing test environment..."));
         fs.mkdirSync(runDir, { recursive: true });
-    }
 
-    // Create app structure
-    const appDir = path.join(runDir, "app");
-    fs.mkdirSync(appDir);
+        // Create app structure
+        const appDir = path.join(runDir, "app");
+        fs.mkdirSync(appDir);
 
-    // Create actions folder (required by Titan build)
-    const actionsDir = path.join(appDir, "actions");
-    fs.mkdirSync(actionsDir);
+        // Create actions folder (required by Titan build)
+        const actionsDir = path.join(appDir, "actions");
+        fs.mkdirSync(actionsDir);
 
-    // Copy titan/ and server/ from templates
-    const templatesDir = path.join(__dirname, "..", "templates");
+        // Copy titan/ and server/ from templates
+        const templatesDir = path.join(__dirname, "..", "templates");
 
-    const titanSrc = path.join(templatesDir, "titan");
-    const titanDest = path.join(runDir, "titan");
-    if (fs.existsSync(titanSrc)) {
-        console.log(cyan("→ Setting up Titan runtime..."));
-        copyDir(titanSrc, titanDest);
-        // Double check titan.js exists
-        if (!fs.existsSync(path.join(titanDest, "titan.js"))) {
-            console.log(red(`Error: Failed to copy titan.js to ${titanDest}`));
+        const titanSrc = path.join(templatesDir, "titan");
+        const titanDest = path.join(runDir, "titan");
+        if (fs.existsSync(titanSrc)) {
+            copyDir(titanSrc, titanDest);
+            // Double check titan.js exists
+            if (!fs.existsSync(path.join(titanDest, "titan.js"))) {
+                console.log(red(`Error: Failed to copy titan.js to ${titanDest}`));
+                process.exit(1);
+            }
+        } else {
+            console.log(red(`Error: Titan templates not found at ${titanSrc}`));
             process.exit(1);
         }
+
+        const serverSrc = path.join(templatesDir, "server");
+        const serverDest = path.join(runDir, "server");
+        if (fs.existsSync(serverSrc)) {
+            copyDir(serverSrc, serverDest);
+        } else {
+            console.log(red(`Error: Server templates not found at ${serverSrc}`));
+            process.exit(1);
+        }
+
+        // Create package.json for the test harness
+        const pkgJson = {
+            "type": "module"
+        };
+        fs.writeFileSync(path.join(runDir, "package.json"), JSON.stringify(pkgJson, null, 2));
+
+        // Create 'node_modules'
+        fs.mkdirSync(path.join(runDir, "node_modules"));
     } else {
-        console.log(red(`Error: Titan templates not found at ${titanSrc}`));
-        process.exit(1);
+        console.log(cyan("Using existing test environment..."));
     }
 
-    const serverSrc = path.join(templatesDir, "server");
-    const serverDest = path.join(runDir, "server");
-    if (fs.existsSync(serverSrc)) {
-        console.log(cyan("→ Setting up Titan server..."));
-        copyDir(serverSrc, serverDest);
-    } else {
-        console.log(red(`Error: Server templates not found at ${serverSrc}`));
-        process.exit(1);
-    }
-
-    // Create package.json for the test harness
-    const pkgJson = {
-        "type": "module"
-    };
-    fs.writeFileSync(path.join(runDir, "package.json"), JSON.stringify(pkgJson, null, 2));
-
-    // Create 'node_modules' to link the extension
+    // Always Ensure Extension Link is Fresh
     const nmDir = path.join(runDir, "node_modules");
-    fs.mkdirSync(nmDir);
+    if (!fs.existsSync(nmDir)) fs.mkdirSync(nmDir, { recursive: true });
+
+    const extDest = path.join(nmDir, name);
+
+    // Remove old link/folder if exists to ensure freshness
+    if (fs.existsSync(extDest)) {
+        try {
+            fs.rmSync(extDest, { recursive: true, force: true });
+        } catch (e) { }
+    }
 
     // Link current extension to node_modules/NAME
-    // Use junction for Windows compat without admin rights
-    const extDest = path.join(nmDir, name);
     try {
+        // Use junction for Windows compat without admin rights
         fs.symlinkSync(cwd, extDest, "junction");
     } catch (e) {
         // Fallback to copy if link fails
-        console.log(yellow("Linking failed, copying extension files..."));
+        // console.log(yellow("Linking failed, copying extension files..."));
         copyDir(cwd, extDest);
     }
 
-    // Create a test action in app/actions/test.js
-    const testAction = `export const test = (req) => {
+    // Create default test files ONLY if they don't exist
+    const actionsDir = path.join(runDir, "app", "actions");
+    const testActionPath = path.join(actionsDir, "test.js");
+
+    if (!fs.existsSync(testActionPath)) {
+        const testAction = `export const test = (req) => {
     const ext = t["${name}"];
     
     const results = {
@@ -160,12 +164,12 @@ function run() {
     return results;
 };
 `;
+        fs.writeFileSync(testActionPath, testAction);
+    }
 
-    fs.writeFileSync(path.join(actionsDir, "test.js"), testAction);
-
-    // Create a simple test script in app/app.js
-    // This script will be executed by Titan
-    const testScript = `import t from "../titan/titan.js";
+    const appJsPath = path.join(runDir, "app", "app.js");
+    if (!fs.existsSync(appJsPath)) {
+        const testScript = `import t from "../titan/titan.js";
 import "${name}";
 
 // Extension test harness for: ${name}
@@ -217,37 +221,30 @@ t.get("/").reply("🚀 Extension Test Harness for ${name}\\n\\nVisit /test to se
 
 await t.start(3000, "Titan Extension Test Running!");
 `;
-
-    fs.writeFileSync(path.join(appDir, "app.js"), testScript);
+        fs.writeFileSync(appJsPath, testScript);
+    }
 
     // Build the app (bundle actions)
     console.log(cyan("Building test app..."));
     try {
-        // Ensure we are in runDir and the file exists
-        const appJsPath = path.join(runDir, "app", "app.js");
-        if (!fs.existsSync(appJsPath)) {
-            throw new Error(`app/app.js missing at ${appJsPath}`);
-        }
-
         execSync("node app/app.js --build", {
             cwd: runDir,
             stdio: "inherit",
             env: { ...process.env, NODE_OPTIONS: "--no-warnings" }
         });
     } catch (e) {
-        console.log(red("Failed to build test app. This is expected if your extension has errors."));
-        // Don't exit here, attempt to continue to show runtime errors if possible
+        console.log(red("Failed to build test app. checking for runtime errors..."));
     }
 
-    // 4. Run Titan Server using cargo run (like dev mode)
-    console.log(green("\x1b[1m\n>>> STARTING EXTENSION TEST >>>\n\x1b[0m"));
+    // 4. Run Titan Server using cargo run
+    console.log(green("\\x1b[1m\\n>>> STARTING EXTENSION TEST >>>\\n\\x1b[0m"));
 
     const serverDir = path.join(runDir, "server");
 
     try {
         execSync("cargo run", { cwd: serverDir, stdio: "inherit" });
     } catch (e) {
-        console.log(red("Runtime exited."));
+        // console.log(red("Runtime exited."));
     }
 }
 

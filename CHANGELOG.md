@@ -1,5 +1,15 @@
 # Changelog
 
+## [26.9.1] - 2026-01-16
+
+### 🛡️ Type Safety & SDK
+- **Stable Titan SDK (v0.1.7)**: The `titanpl-sdk` has been promoted to a stable release.
+  - **Persistent Test Harness**: The extension test runner (`titan run ext`) now intelligently preserves your test code (`app/app.js`, `app/actions`) between runs, so you can build complex test suites without them being wiped.
+  - **Smart Linking**: Safely re-links your extension to `node_modules` on every run to ensure the latest code is always active.
+- **Enhanced TypeScript Definitions**:
+  - Unified `titan.d.ts` structure for both Standard and Hybrid templates.
+  - Improved type inference for `defineAction` and `TitanRequest`.
+
 ## [26.9.0] - 2026-01-15
 
 ### 🛡️ Reliability & Safety

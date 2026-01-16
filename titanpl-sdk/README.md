@@ -75,11 +75,11 @@ Since the `t` object is injected globally by the Titan engine at runtime, your I
     ```
 
 Now your editor will treat `t` as a first-class citizen:
-```js
-export function myAction(req) {
-  t.log.info("Request received", req.path); // Autocomplete works!
+```ts
+export const myAction = defineAction((req) => {
+  t.log("Request received", req.path); // Autocomplete works!
   return { status: "ok" };
-}
+});
 ```
 
 ---

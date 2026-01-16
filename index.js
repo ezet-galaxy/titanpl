@@ -107,7 +107,7 @@ function help() {
     console.log(`
 ${bold(cyan("Titan Planet"))}  v${TITAN_VERSION}
 
-${green("titan init <project>")}   Create new Titan project
+${green("titan init <project> [-t <template>]")}   Create new Titan project
 ${green("titan create ext <name>")} Create new Titan extension
 ${green("titan dev")}              Dev mode (hot reload)
 ${green("titan build")}            Build production Rust server
@@ -188,7 +188,7 @@ async function initProject(name, templateName) {
         const arch = archRes.value;
 
         if (lang === 'js') {
-            selectedTemplate = arch === 'standard' ? 'js' : 'rust';
+            selectedTemplate = arch === 'standard' ? 'js' : 'rust-js';
         } else {
             selectedTemplate = arch === 'standard' ? 'ts' : 'rust-ts';
         }
@@ -289,7 +289,7 @@ async function devServer() {
 /* -------------------------------------------------------
  * BUILD
  * ----------------------------------------------------- */
-function buildProd() {
+async function buildProd() {
     console.log(cyan("Titan: Building production output..."));
 
     const root = process.cwd();
@@ -298,9 +298,32 @@ function buildProd() {
     const actionsOut = path.join(serverDir, "actions");
 
     // BASIC CHECKS
-    if (!fs.existsSync(appJs)) {
-        console.log(red("ERROR: app/app.js not found."));
+    if (!fs.existsSync(appJs) && !fs.existsSync(path.join(root, "app", "app.ts"))) {
+        console.log(red("ERROR: app/app.js or app/app.ts not found."));
         process.exit(1);
+    }
+
+    // COMPILE TYPESCRIPT IF NEEDED
+    if (fs.existsSync(path.join(root, "tsconfig.json"))) {
+        console.log(cyan("→ Compiling TypeScript..."));
+        try {
+            // We use esbuild for speed and consistency with dev mode
+            const { buildSync } = await import("esbuild");
+            buildSync({
+                entryPoints: [path.join(root, "app", "app.ts")],
+                outfile: appJs,
+                bundle: true,
+                platform: "node",
+                format: "esm",
+                external: ["fs", "path", "esbuild", "chokidar", "typescript"],
+                packages: "external",
+            });
+            console.log(green("✔ TypeScript compiled"));
+        } catch (e) {
+            console.log(red("ERROR: Failed to compile TypeScript."));
+            console.error(e);
+            process.exit(1);
+        }
     }
 
     // ----------------------------------------------------
@@ -330,23 +353,42 @@ function buildProd() {
     // 2) BUILD RUST BINARY
     // ----------------------------------------------------
     console.log(cyan("→ Building Rust release binary..."));
-    execSync("cargo build --release", {
-        cwd: serverDir,
-        stdio: "inherit"
-    });
 
-    console.log(green("✔ Titan production build complete!"));
+    // Only build rust if it's a rust project (check Cargo.toml)
+    if (fs.existsSync(path.join(serverDir, "Cargo.toml"))) {
+        execSync("cargo build --release", {
+            cwd: serverDir,
+            stdio: "inherit"
+        });
+        console.log(green("✔ Titan production build complete!"));
+    } else {
+        console.log(green("✔ Titan production build complete (pure JS/TS)!"));
+    }
 }
 
 /* -------------------------------------------------------
  * START
  * ----------------------------------------------------- */
-function startProd() {
+async function startProd() {
     const isWin = process.platform === "win32";
     const bin = isWin ? "titan-server.exe" : "titan-server";
+    const root = process.cwd();
 
-    const exe = path.join(process.cwd(), "server", "target", "release", bin);
-    execSync(`"${exe}"`, { stdio: "inherit" });
+    const exe = path.join(root, "server", "target", "release", bin);
+
+    if (fs.existsSync(exe)) {
+        execSync(`"${exe}"`, { stdio: "inherit" });
+    } else {
+        // Fallback to pure node start if no rust binary
+        const appJs = path.join(root, "app", "app.js");
+        // Actually, typically we run the bundled/compiled app if we don't have rust server?
+        // But wait, the pure TS template runs `node .titan/app.js` in Docker.
+        // But locally `titan start` relies on `app/app.js` being compiled?
+        // In `buildProd` above we compiled to `app/app.js`.
+        // Let's check for `.titan/app.js` which is dev artifact? No, use the prod build artifact.
+        execSync(`node "${appJs}"`, { stdio: "inherit" });
+    }
+
 }
 
 /* -------------------------------------------------------
@@ -586,8 +628,8 @@ if (cmd === "create" && args[1] === "ext") {
             break;
         }
         case "dev": devServer(); break;
-        case "build": buildProd(); break;
-        case "start": startProd(); break;
+        case "build": await buildProd(); break;
+        case "start": await startProd(); break;
         case "update": updateTitan(); break;
         case "--version":
         case "-v":

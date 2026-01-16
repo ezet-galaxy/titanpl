@@ -2,27 +2,25 @@ import fs from "fs";
 import path from "path";
 import esbuild from "esbuild";
 
-const root = process.cwd();
-const actionsDir = path.join(root, "app", "actions");
-const outDir = path.join(root, "server", "actions");
-
 export async function bundle() {
+  const root = process.cwd();
+  const actionsDir = path.join(root, "app", "actions");
+  const outDir = path.join(root, "server", "actions");
+
   const start = Date.now();
-  await bundleJs();
+  await bundleJs(actionsDir, outDir);
   // console.log(`[Titan] Bundle finished in ${((Date.now() - start) / 1000).toFixed(2)}s`);
 }
 
-async function bundleJs() {
+async function bundleJs(actionsDir, outDir) {
   // console.log("[Titan] Bundling JS actions...");
 
   fs.mkdirSync(outDir, { recursive: true });
 
   // Clean old bundles
-  if (fs.existsSync(outDir)) {
-    const oldFiles = fs.readdirSync(outDir);
-    for (const file of oldFiles) {
-      fs.unlinkSync(path.join(outDir, file));
-    }
+  const oldFiles = fs.readdirSync(outDir);
+  for (const file of oldFiles) {
+    fs.unlinkSync(path.join(outDir, file));
   }
 
   const files = fs.readdirSync(actionsDir).filter(f => f.endsWith(".js") || f.endsWith(".ts"));

@@ -2,19 +2,19 @@ import fs from "fs";
 import path from "path";
 import esbuild from "esbuild";
 
-const root = process.cwd();
-const actionsDir = path.join(root, "app", "actions");
-const outDir = path.join(root, "server", "actions");
-const rustOutDir = path.join(root, "server", "src", "actions_rust");
-
 export async function bundle() {
+  const root = process.cwd();
+  const actionsDir = path.join(root, "app", "actions");
+  const outDir = path.join(root, "server", "actions");
+  const rustOutDir = path.join(root, "server", "src", "actions_rust");
+
   const start = Date.now();
-  await bundleJs();
-  await bundleRust();
+  await bundleJs(actionsDir, outDir);
+  await bundleRust(rustOutDir, actionsDir);
   // console.log(`[Titan] Bundle finished in ${((Date.now() - start) / 1000).toFixed(2)}s`);
 }
 
-async function bundleJs() {
+async function bundleJs(actionsDir, outDir) {
   // console.log("[Titan] Bundling JS actions...");
 
   fs.mkdirSync(outDir, { recursive: true });
@@ -77,8 +77,14 @@ async function bundleJs() {
   // console.log("[Titan] JS Bundling finished.");
 }
 
-export async function bundleRust() {
+export async function bundleRust(rustOutDir, actionsDir) {
   // console.log("[Titan] Bundling Rust actions...");
+
+  // Fallback if called directly (though typically called via bundle)
+  const root = process.cwd();
+  if (!actionsDir) actionsDir = path.join(root, "app", "actions");
+  if (!rustOutDir) rustOutDir = path.join(root, "server", "src", "actions_rust");
+
 
   if (!fs.existsSync(rustOutDir)) {
     fs.mkdirSync(rustOutDir, { recursive: true });
