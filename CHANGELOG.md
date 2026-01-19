@@ -1,5 +1,26 @@
 # Changelog
 
+## [26.10.0] - 2026-01-19
+
+### 🧬 New Titan Native ABI Engine
+- **Dynamic Signature Support**: Replaced the legacy fixed-signature system with a fully dynamic ABI engine. `titan.json` now drives the function signatures, allowing native extensions to define precise inputs and outputs.
+- **Enhanced Type System**:
+  - Added native support for **String**, **F64**, **Bool**, **JSON**, and **Buffer** (`Vec<u8>`).
+  - **Zero-Copy Memory Model**: Implemented efficient, owned-value transfer between V8 and Rust, ensuring memory safety without manual pointer management.
+- **Universal Dispatcher**:
+  - **Variadic Arguments**: JS wrappers now use rest parameters (`...args`), enabling native functions to accept any number of arguments defined in their signature.
+  - **Smart Dispatch**: The engine automatically marshals V8 values to Rust types and dispatches to the correct native symbol based on the signature index.
+
+### 🛡️ Core Reliability
+- **Safety Fixes**:
+  - Resolved **borrow checker conflicts** in the extension loader and V8 scope management.
+  - Fixed **Cell casting** issues in Buffer handling (`Cell<u8>` -> `u64`), ensuring correct binary data transfer.
+  - Removed duplicate logic in argument parsing loops for cleaner execution paths.
+- **Extension Stability**:
+  - Fixed `ReferenceError: module is not defined` by ensuring extensions don't rely on Node.js-specific globals in the Titan IIFE wrapper.
+  - Verified full ABI compatibility with the `test-js` app suite.
+
+
 ## [26.9.4] - 2026-01-17
 
 ### 🧩 Extension System Enhancement

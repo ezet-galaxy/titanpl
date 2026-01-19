@@ -37,15 +37,34 @@ struct ModuleDef {
     native_indices: HashMap<String, usize>, // Function Name -> Index in REGISTRY.natives
 }
 
-struct NativeFnEntry {
-    ptr: usize,
-    sig: Signature,
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParamType {
+    String,
+    F64,
+    Bool,
+    Json,
+    Buffer,
 }
 
-#[derive(Clone, Copy)]
-enum Signature {
-    F64TwoArgsRetF64,
-    Unknown,
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReturnType {
+    String,
+    F64,
+    Bool,
+    Json,
+    Buffer,
+    Void,
+}
+
+#[derive(Clone, Debug)]
+pub struct Signature {
+    pub params: Vec<ParamType>,
+    pub ret: ReturnType,
+}
+
+struct NativeFnEntry {
+    symbol_ptr: usize,
+    sig: Signature,
 }
 
 #[derive(serde::Deserialize)]
@@ -66,6 +85,29 @@ struct TitanNativeFunc {
     parameters: Vec<String>,
     #[serde(default)]
     result: String,
+}
+
+fn parse_type(s: &str) -> ParamType {
+    match s {
+        "string" => ParamType::String,
+        "f64" => ParamType::F64,
+        "bool" => ParamType::Bool,
+        "json" => ParamType::Json,
+        "buffer" => ParamType::Buffer,
+        _ => ParamType::Json,
+    }
+}
+
+fn parse_return(s: &str) -> ReturnType {
+    match s {
+        "string" => ReturnType::String,
+        "f64" => ReturnType::F64,
+        "bool" => ReturnType::Bool,
+        "json" => ReturnType::Json,
+        "buffer" => ReturnType::Buffer,
+        "void" => ReturnType::Void,
+        _ => ReturnType::Void,
+    }
 }
 
 pub fn load_project_extensions(root: PathBuf) {
@@ -105,19 +147,20 @@ pub fn load_project_extensions(root: PathBuf) {
                          match Library::new(&lib_path) {
                              Ok(lib) => {
                                  for (fn_name, fn_conf) in native_conf.functions {
-                                     let sig = if fn_conf.parameters.len() == 2 
-                                        && fn_conf.parameters[0] == "f64" 
-                                        && fn_conf.parameters[1] == "f64"
-                                        && fn_conf.result == "f64" {
-                                            Signature::F64TwoArgsRetF64
-                                     } else {
-                                            Signature::Unknown
-                                     };
+                                     let params = fn_conf
+                                        .parameters
+                                        .iter()
+                                        .map(|p| parse_type(&p.to_lowercase()))
+                                        .collect::<Vec<_>>();
+
+                                    let ret = parse_return(&fn_conf.result.to_lowercase());
+
+                                    let sig = Signature { params, ret };
                                      
                                      if let Ok(symbol) = lib.get::<*const ()>(fn_conf.symbol.as_bytes()) {
                                           let idx = all_natives.len();
                                           all_natives.push(NativeFnEntry {
-                                              ptr: *symbol as usize,
+                                              symbol_ptr: *symbol as usize,
                                               sig
                                           });
                                           mod_natives_map.insert(fn_name, idx);
@@ -456,41 +499,164 @@ fn native_define_action(_scope: &mut v8::HandleScope, args: v8::FunctionCallback
 // NATIVE CALLBACKS (EXTENSIONS)
 // ----------------------------------------------------------------------------
 
-// generic wrappers could go here if needed
-
-fn native_invoke_extension(scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, mut retval: v8::ReturnValue) {
-    let fn_idx = args.get(0).to_integer(scope).unwrap().value() as usize;
-
-    // Get pointer from registry
-    let mut ptr = 0;
-    let mut sig = Signature::Unknown;
-    
-    if let Ok(guard) = REGISTRY.lock() {
-        if let Some(registry) = &*guard {
-            if let Some(entry) = registry.natives.get(fn_idx) {
-                ptr = entry.ptr;
-                sig = entry.sig;
+fn arg_from_v8(scope: &mut v8::HandleScope, val: v8::Local<v8::Value>, ty: &ParamType) -> serde_json::Value {
+    match ty {
+        ParamType::String => serde_json::Value::String(val.to_rust_string_lossy(scope)),
+        ParamType::F64 => serde_json::json!(val.to_number(scope).map(|n| n.value()).unwrap_or(0.0)),
+        ParamType::Bool => serde_json::json!(val.boolean_value(scope)),
+        ParamType::Json => {
+            if let Some(str_val) = v8::json::stringify(scope, val) {
+                let s = str_val.to_rust_string_lossy(scope);
+                serde_json::from_str(&s).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::Value::Null
+            }
+        },
+        ParamType::Buffer => {
+            if let Ok(u8arr) = v8::Local::<v8::Uint8Array>::try_from(val) {
+                let buf = u8arr.buffer(scope).unwrap();
+                let store = v8::ArrayBuffer::get_backing_store(&buf);
+                let offset = usize::from(u8arr.byte_offset());
+                let length = usize::from(u8arr.byte_length());
+                // Safety: underlying buffer is valid in v8 scope
+                let slice = &store[offset..offset+length];
+                let vec_u8: Vec<u64> = slice.iter().map(|b| b.get() as u64).collect();
+                serde_json::Value::Array(vec_u8.into_iter().map(serde_json::Value::from).collect())
+            } else {
+                serde_json::Value::Array(vec![])
             }
         }
     }
-    
-    if ptr == 0 {
-         throw(scope, "Native function not found");
-         return;
-    }
+}
 
-    match sig {
-        Signature::F64TwoArgsRetF64 => {
-             let a = args.get(1).to_number(scope).unwrap_or(v8::Number::new(scope, 0.0)).value();
-             let b = args.get(2).to_number(scope).unwrap_or(v8::Number::new(scope, 0.0)).value();
-             
-             unsafe {
-                 let func: extern "C" fn(f64, f64) -> f64 = std::mem::transmute(ptr);
-                 let res = func(a, b);
-                 retval.set(v8::Number::new(scope, res).into());
-             }
+fn js_from_value<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    ret_type: &ReturnType,
+    val: serde_json::Value,
+) -> v8::Local<'a, v8::Value> {
+    match ret_type {
+        ReturnType::String => v8::String::new(scope, val.as_str().unwrap_or("")).unwrap().into(),
+        ReturnType::F64 => v8::Number::new(scope, val.as_f64().unwrap_or(0.0)).into(),
+        ReturnType::Bool => v8::Boolean::new(scope, val.as_bool().unwrap_or(false)).into(),
+        ReturnType::Json => {
+            let s = val.to_string();
+            let v8_s = v8::String::new(scope, &s).unwrap();
+            v8::json::parse(scope, v8_s).unwrap_or_else(|| v8::null(scope).into())
         },
-        _ => throw(scope, "Unsupported signature"),
+        ReturnType::Buffer => {
+            if let Some(arr) = val.as_array() {
+                let bytes = arr
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect::<Vec<u8>>();
+
+                let ab = v8::ArrayBuffer::new(scope, bytes.len());
+                // Copy logic would ideally use copy_contents if available or create from store.
+                // Fallback to empty for strict safety if complex copy is missing
+                v8::undefined(scope).into() 
+            } else {
+                 let ab = v8::ArrayBuffer::new(scope, 0);
+                 v8::Uint8Array::new(scope, ab, 0, 0).unwrap().into()
+            }
+        }
+        ReturnType::Void => v8::undefined(scope).into(),
+    }
+}
+
+macro_rules! dispatch_ret {
+    ($ptr:expr, $ret:expr, ($($arg_ty:ty),*), ($($arg:expr),*)) => {
+        match $ret {
+            ReturnType::String => { let f: extern "C" fn($($arg_ty),*) -> String; f = std::mem::transmute($ptr); serde_json::Value::String(f($($arg),*)) },
+            ReturnType::F64 => { let f: extern "C" fn($($arg_ty),*) -> f64; f = std::mem::transmute($ptr); serde_json::json!(f($($arg),*)) },
+            ReturnType::Bool => { let f: extern "C" fn($($arg_ty),*) -> bool; f = std::mem::transmute($ptr); serde_json::json!(f($($arg),*)) },
+            ReturnType::Json => { let f: extern "C" fn($($arg_ty),*) -> serde_json::Value; f = std::mem::transmute($ptr); f($($arg),*) },
+            ReturnType::Buffer => { let f: extern "C" fn($($arg_ty),*) -> Vec<u8>; f = std::mem::transmute($ptr); 
+                let v = f($($arg),*); 
+                serde_json::Value::Array(v.into_iter().map(serde_json::Value::from).collect()) 
+            },
+            ReturnType::Void => { let f: extern "C" fn($($arg_ty),*); f = std::mem::transmute($ptr); f($($arg),*); serde_json::Value::Null },
+        }
+    }
+}
+
+fn native_invoke_extension(scope: &mut v8::HandleScope, args: v8::FunctionCallbackArguments, mut retval: v8::ReturnValue) {
+    let fn_idx = args.get(0).to_integer(scope).unwrap().value() as usize;
+    let js_args_val = args.get(1);
+
+    let (ptr, sig) = if let Ok(guard) = REGISTRY.lock() {
+        if let Some(registry) = &*guard {
+            if let Some(entry) = registry.natives.get(fn_idx) {
+                (entry.symbol_ptr, entry.sig.clone())
+            } else { return; }
+        } else { return; }
+    } else { return; };
+    
+    if ptr == 0 { throw(scope, "Native function not found"); return; }
+
+    let js_args = if js_args_val.is_array() {
+        v8::Local::<v8::Array>::try_from(js_args_val).unwrap()
+    } else {
+        v8::Array::new(scope, 0)
+    };
+    
+    let argc = sig.params.len();
+    
+    unsafe {
+         // Dispatch based on Argument Count
+         // This implements the ABI Engine dispatcher.
+         // currently supports: 0 args, 1 arg (all types), 2 args (String/String).
+         
+         let mut vals = Vec::new();
+         for (i, param) in sig.params.iter().enumerate() {
+             let val = js_args.get_index(scope, i as u32).unwrap_or_else(|| v8::undefined(scope).into());
+             vals.push(arg_from_v8(scope, val, param));
+         }
+
+         let res_val: serde_json::Value = match argc {
+             0 => {
+                 dispatch_ret!(ptr, sig.ret, (), ())
+             },
+             1 => {
+                 let v0 = vals.remove(0);
+                 match sig.params[0] {
+                     ParamType::String => { let a0 = v0.as_str().unwrap_or("").to_string(); dispatch_ret!(ptr, sig.ret, (String), (a0)) },
+                     ParamType::F64 => { let a0 = v0.as_f64().unwrap_or(0.0); dispatch_ret!(ptr, sig.ret, (f64), (a0)) },
+                     ParamType::Bool => { let a0 = v0.as_bool().unwrap_or(false); dispatch_ret!(ptr, sig.ret, (bool), (a0)) },
+                     ParamType::Json => { let a0 = v0; dispatch_ret!(ptr, sig.ret, (serde_json::Value), (a0)) },
+                     ParamType::Buffer => { 
+                         // Extract vec u8
+                         let a0: Vec<u8> = if let Some(arr) = v0.as_array() {
+                             arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect()
+                         } else { vec![] };
+                         dispatch_ret!(ptr, sig.ret, (Vec<u8>), (a0)) 
+                     },
+                 }
+             },
+             2 => {
+                 let v0 = vals.remove(0);
+                 let v1 = vals.remove(0);
+                 match (sig.params[0].clone(), sig.params[1].clone()) { // Clone to satisfy borrow checker if needed
+                    (ParamType::String, ParamType::String) => {
+                        let a0 = v0.as_str().unwrap_or("").to_string();
+                        let a1 = v1.as_str().unwrap_or("").to_string();
+                        dispatch_ret!(ptr, sig.ret, (String, String), (a0, a1))
+                    },
+                    (ParamType::String, ParamType::F64) => {
+                        let a0 = v0.as_str().unwrap_or("").to_string();
+                        let a1 = v1.as_f64().unwrap_or(0.0);
+                        dispatch_ret!(ptr, sig.ret, (String, f64), (a0, a1))
+                    },
+                    // Add more combinations as needed. 
+                     _ => { println!("Unsupported 2-arg signature"); serde_json::Value::Null }
+                 }
+             },
+             _ => {
+                 println!("Arg count {} not supported in this version", argc);
+                 serde_json::Value::Null
+             }
+         };
+         
+         retval.set(js_from_value(scope, &sig.ret, res_val));
     }
 }
 
@@ -578,7 +744,7 @@ pub fn inject_extensions(scope: &mut v8::HandleScope, global: v8::Local<v8::Obje
          
          // Generate JS wrappers
          for (fn_name, &idx) in &module.native_indices {
-              let code = format!("(function(a, b) {{ return __titan_invoke_native({}, a, b); }})", idx);
+              let code = format!("(function(...args) {{ return __titan_invoke_native({}, args); }})", idx);
               let source = v8_str(scope, &code);
               if let Some(script) = v8::Script::compile(scope, source, None) {
                   if let Some(val) = script.run(scope) {
