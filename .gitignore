@@ -24,5 +24,6 @@ test-apps/
 mkctx/
 mkctx.config.json
 coverage/
+coverage-e2e
 
 build
