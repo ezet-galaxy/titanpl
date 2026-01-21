@@ -427,19 +427,15 @@ export function startProd() {
     const isWin = process.platform === "win32";
     const bin = isWin ? "titan-server.exe" : "titan-server";
     const root = process.cwd();
+    const serverDir = path.join(root, "server");
 
-    const exe = path.join(root, "server", "target", "release", bin);
+    const exe = path.join(serverDir, "target", "release", bin);
 
     if (fs.existsSync(exe)) {
-        execSync(`"${exe}"`, { stdio: "inherit" });
+        execSync(`"${exe}"`, { stdio: "inherit", cwd: serverDir });
     } else {
         // Fallback to pure node start if no rust binary
         const appJs = path.join(root, "app", "app.js");
-        // Actually, typically we run the bundled/compiled app if we don't have rust server?
-        // But wait, the pure TS template runs `node .titan/app.js` in Docker.
-        // But locally `titan start` relies on `app/app.js` being compiled?
-        // In `buildProd` above we compiled to `app/app.js`.
-        // Let's check for `.titan/app.js` which is dev artifact? No, use the prod build artifact.
         execSync(`node "${appJs}"`, { stdio: "inherit" });
     }
 }
