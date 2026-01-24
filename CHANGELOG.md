@@ -1,5 +1,47 @@
 # Changelog
 
+## [26.12.3] – 2026-01-24
+
+### Titan Gravity Runtime — Stable
+
+## ✨ Highlights
+
+### **Gravity Runtime Stabilized**
+
+The multi-isolate V8 reactor engine is now fully stable.
+Each worker runs its own long-lived isolate with precompiled actions, enabling predictable multi-core performance.
+
+### **t.db Fixed & Optimized**
+
+`t.db` now uses a proper connection pool:
+
+* no reconnect per request
+* lower DB latency
+* more stable and consistent queries
+
+This removes the 300–600 ms overhead seen in earlier builds.
+
+## 🚀 Improvements
+
+* Isolate boot, shutdown, and scheduling are now deterministic.
+* JSON parsing moved inside worker threads for lower network-thread load.
+* Better logs for action errors and extension load failures.
+* CLI startup banner and environment resolution improved.
+
+## ⚡ Performance
+
+* 10k–12k req/sec on 8-core hardware
+* Sub-1 ms compute routes
+* 2–5 ms DB reads (local + pooled)
+
+## 🐛 Fixes
+
+* Route resolver bugs corrected
+* Rare isolate freeze resolved
+* Node modules extension lookup fixed
+
+---
+
 ## [26.12.0] – 2026-01-24
 
 ### 🔥 Major Architecture Overhaul: Strictly Synchronous V8 Runtime
