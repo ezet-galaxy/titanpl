@@ -222,11 +222,99 @@ Titan compiles your entire app—JS/TS code, Rust code, and server logic—into 
 
 ---
 
-# 🧱 Architecture Note
-Titan is **not** a Node.js framework. It is a Rust server that speaks JavaScript/TypeScript.
-* **No Event Loop** for JS (Request/Response model).
-* **No `require`** (Use raw imports or bundled dependencies).
-* **True Isolation** per request.
+# 🧱 Architecture: Strictly Synchronous V8 Runtime
+
+Titan is **not** a Node.js framework. It is a **Rust server with embedded V8 engines** that executes JavaScript/TypeScript **synchronously**.
+
+### Key Architectural Principles:
+
+* **No Event Loop in Workers**: Unlike Node.js, Titan workers do **not** run an event loop. Code executes synchronously from request entry to response exit.
+* **Request-Driven Execution**: Each worker processes one request at a time, blocks until completion, then awaits the next request.
+* **Blocking I/O**: All I/O operations (HTTP, DB, file system) block the worker thread. Scaling is achieved by increasing worker threads, not through async I/O.
+* **Deterministic Execution**: All code runs linearly, making debugging predictable and straightforward.
+* **True Isolation**: Each worker owns an independent V8 isolate with zero shared state or cross-worker communication.
+* **No `require` or `import.meta`**: Use ES6 imports only. Dependencies are bundled with esbuild.
+* **No Async/Await**: JavaScript actions cannot use Promises, `async/await`, `setTimeout`, or any other asynchronous primitives.
+
+### Synchronous Execution Model:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Incoming HTTP Request                        │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │
+                      ▼
+         ┌────────────────────────┐
+         │   Axum HTTP Server     │
+         │    (Rust, async)       │
+         └────────┬───────────────┘
+                  │
+                  │ Dispatch to Worker
+                  ▼
+    ┌──────────────────────────────────┐
+    │      Worker Thread (Rust)        │
+    │  ┌────────────────────────────┐  │
+    │  │   V8 Isolate               │  │
+    │  │  ┌──────────────────────┐  │  │
+    │  │  │  Execute Action      │  │  │ ◄── Synchronous, blocking execution
+    │  │  │  (JavaScript/TS)     │  │  │
+    │  │  │                      │  │  │
+    │  │  │  t.fetch() ──────────┼──┼──┼──► Blocks until HTTP response
+    │  │  │         │            │  │  │
+    │  │  │         ▼            │  │  │
+    │  │  │  return { ... }      │  │  │
+    │  │  └──────────────────────┘  │  │
+    │  └────────────────────────────┘  │
+    └──────────┬───────────────────────┘
+               │
+               │ Return response
+               ▼
+    ┌─────────────────────────┐
+    │   HTTP Response Sent    │
+    └─────────────────────────┘
+```
+
+### Performance Characteristics:
+
+* **Cold Start**: ~3-5ms (embedded runtime eliminates disk I/O)
+* **Action Execute**: ~100-500µs
+* **Memory/Worker**: ~40-80MB (configurable via V8 flags)
+* **Throughput**: ~10k req/sec @ 200 concurrent connections
+* **Latency**: ~14-17ms (p50), ~30ms (p97.5)
+
+### When to Use TitanPL:
+
+✅ **Perfect for:**
+* CPU-bound or compute-heavy services
+* Deterministic execution requirements
+* Linear debugging workflows
+* Predictable memory usage per worker
+* Crash isolation (one worker crash doesn't affect others)
+
+❌ **Not ideal for:**
+* I/O-heavy services with high concurrency (use Node.js, Deno, or Bun)
+* Applications requiring `setTimeout`, Promises, or async/await
+* Real-time event-driven architectures
+
+### Migration from Async Patterns:
+
+If you're coming from Node.js, **do not** try to use async patterns:
+
+```javascript
+// ❌ This will NOT work
+export const fetchUser = defineAction(async (req) => {
+  const response = await t.fetch("https://api.example.com/user");
+  return response;
+});
+
+// ✅ Use synchronous blocking calls instead
+export const fetchUser = defineAction((req) => {
+  const response = t.fetch("https://api.example.com/user"); // Blocks until complete
+  return response;
+});
+```
+
+For detailed performance optimization strategies, see [`PERFORMANCE.md`](./test-apps/test-js/server/PERFORMANCE.md).
 
 ---
 
@@ -257,7 +345,7 @@ TitanPL spins up a **worker pool**, where each worker owns:
 * Its own V8 isolate
 * Its own context
 * Its own compiled actions
-* Its own event loop
+* **No event loop** (synchronous execution only)
 
 Workers never share a lock, never block each other, and never wait for global state.
 
@@ -267,7 +355,7 @@ This gives TitanPL a performance profile similar to:
 * Chrome’s process-per-tab architecture
 * High-performance Rust servers like Actix or Hyper
 
-But executed **directly for JavaScript**.
+But executed **directly for JavaScript with synchronous semantics**.
 
 ---
 

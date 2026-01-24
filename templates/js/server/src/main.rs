@@ -251,7 +251,6 @@ async fn dynamic_handler_inner(
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
-    // init_v8(); // Managed by init_runtime now
 
     // Load routes.json
     let raw = fs::read_to_string("./routes.json").unwrap_or_else(|_| "{}".to_string());
@@ -270,7 +269,7 @@ async fn main() -> Result<()> {
     extensions::load_project_extensions(project_root.clone());
     
     // Initialize Runtime Manager (Worker Pool)
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let threads = num_cpus::get() * 4;
     
     let runtime_manager = Arc::new(RuntimeManager::new(project_root.clone(), threads));
 

@@ -82,7 +82,7 @@ async function killServer() {
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 let spinnerTimer = null;
-const frames = ["⏣", "⟐", "⟡", "⟠", "⟡", "⟐"];  
+const frames = ["⏣", "⟐", "⟡", "⟠", "⟡", "⟐"];
 let frameIdx = 0;
 
 function startSpinner(text) {
@@ -192,25 +192,59 @@ async function startRustServer(retryCount = 0) {
         }
     });
 
+    // Monitor stderr for port binding errors
+    serverProcess.stderr.on("data", (data) => {
+        stderrBuffer += data.toString();
+    });
+
     serverProcess.on("close", async (code) => {
         clearTimeout(slowTimer);
         if (isKilling) return;
         const runTime = Date.now() - startTime;
 
         if (code !== 0 && code !== null) {
-            stopSpinner(false, "Orbit stabilization failed");
-            if (!isReady) {
-                console.log(gray("\n--- Build Logs ---"));
-                console.log(buildLogs);
-                console.log(gray("------------------\n"));
+            // Check for port binding errors
+            const isPortError = stderrBuffer.includes("Address already in use") ||
+                stderrBuffer.includes("address in use") ||
+                stderrBuffer.includes("os error 10048") || // Windows
+                stderrBuffer.includes("EADDRINUSE") ||
+                stderrBuffer.includes("AddrInUse");
+
+            if (isPortError) {
+                stopSpinner(false, "Orbit stabilization failed");
+                console.log("");
+
+                console.log(red("⏣  Your application cannot enter this orbit"));
+                console.log(red("↳  Another application is already bound to this port."));
+                console.log("");
+
+                console.log(yellow("Recommended Actions:"));
+                console.log(yellow("  1.") + " Release the occupied orbit (stop the other service).");
+                console.log(yellow("  2.") + " Assign your application to a new orbit in " + cyan("app/app.js"));
+                console.log(yellow("     Example: ") + cyan('t.start(3001, "Titan Running!")'));
+                console.log("");
+
+                return;
             }
 
-            if (runTime < 15000 && retryCount < 5) {
+
+            stopSpinner(false, "Orbit stabilization failed");
+
+            // Debug: Show stderr if it's not empty and not a port error
+            if (stderrBuffer && stderrBuffer.trim()) {
+                console.log(gray("\n[Debug] Cargo stderr:"));
+                console.log(gray(stderrBuffer.substring(0, 500))); // Show first 500 chars
+            }
+
+            if (runTime < 15000 && retryCount < maxRetries) {
                 await delay(2000);
                 await startRustServer(retryCount + 1);
+            } else if (retryCount >= maxRetries) {
+                console.log(gray("\n[Titan] Waiting for changes to retry..."));
             }
         }
     });
+
 }
 
 async function rebuild() {

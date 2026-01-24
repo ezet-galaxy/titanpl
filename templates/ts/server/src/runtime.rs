@@ -17,7 +17,11 @@ use crate::extensions;
 /// 1. `Bytes`: An Arc-counted slice of the original TCP buffer. Cloning this is O(1).
 /// 2. `SmallVec`: Stack-allocated vectors for headers/params. 99% of requests fit in standard limits
 ///    (8 headers, 4 params), avoiding malloc/free overhead entirely.
-pub struct WorkerCommand {
+pub enum WorkerCommand {
+    Request(RequestTask),
+}
+
+pub struct RequestTask {
     pub action_name: String,
     
     // Zero-copy body (Arc-based byte slice)
@@ -40,6 +44,7 @@ pub struct WorkerCommand {
     pub response_tx: oneshot::Sender<WorkerResult>,
 }
 
+
 pub struct WorkerResult {
     pub json: serde_json::Value,
 }
@@ -57,6 +62,7 @@ impl RuntimeManager {
         
         for i in 0..num_threads {
             let rx_clone = rx.clone();
+            let tx_clone = tx.clone();
             let root_clone = project_root.clone();
             
             let handle = thread::Builder::new()
@@ -64,25 +70,21 @@ impl RuntimeManager {
                 .spawn(move || {
                     // 1. Thread-Local Event Loop Init
                     // Initialize independent V8 Isolate for this thread
-                    let mut runtime = extensions::init_runtime_worker(root_clone);
+                    let mut runtime = extensions::init_runtime_worker(root_clone, tx_clone);
                     
                     // 2. Event Loop
-                    while let Ok(cmd) = rx_clone.recv() {
-                         // 3. Execution (Zero-Copy)
-                         let result = extensions::execute_action_optimized(
-                            &mut runtime,
-                            &cmd.action_name,
-                            cmd.body,
-                            &cmd.method,
-                            &cmd.path,
-                            &cmd.headers,
-                            &cmd.params,
-                            &cmd.query
-                        );
-                        
-                        let _ = cmd.response_tx.send(WorkerResult {
-                            json: result,
-                        });
+                    let runtime_ptr = &mut runtime as *mut extensions::TitanRuntime as *mut std::ffi::c_void;
+                    runtime.isolate.set_data(0, runtime_ptr);
+
+                    loop {
+                        // Strictly synchronous blocking receive
+                        // This makes the worker a dedicated processor for requests from the queue.
+                        // No background event loop is running.
+                        if let Ok(cmd) = rx_clone.recv() {
+                            handle_cmd(cmd, &mut runtime);
+                        } else {
+                            break;
+                        }
                     }
                 })
                 .expect("Failed to spawn worker thread");
@@ -109,7 +111,7 @@ impl RuntimeManager {
     ) -> Result<serde_json::Value, String> {
         let (tx, rx) = oneshot::channel();
         
-        let cmd = WorkerCommand {
+        let task = RequestTask {
             action_name: action,
             body,
             method,
@@ -121,7 +123,7 @@ impl RuntimeManager {
         };
         
         // Dispatch to RingBuffer/Channel
-        self.sender.send(cmd).map_err(|e| e.to_string())?;
+        self.sender.send(WorkerCommand::Request(task)).map_err(|e| e.to_string())?;
         
         // Await Result (Async-Sync Bridge)
         match rx.await {
@@ -129,4 +131,28 @@ impl RuntimeManager {
             Err(_) => Err("Worker channel closed".to_string()),
         }
     }
+
+}
+
+fn handle_cmd(cmd: WorkerCommand, runtime: &mut extensions::TitanRuntime) {
+
+     match cmd {
+         WorkerCommand::Request(task) => {
+             // 3. Execution (Zero-Copy)
+             let result = extensions::execute_action_optimized(
+                runtime,
+                &task.action_name,
+                task.body,
+                &task.method,
+                &task.path,
+                &task.headers,
+                &task.params,
+                &task.query
+            );
+            
+            let _ = task.response_tx.send(WorkerResult {
+                json: result,
+            });
+         }
+     }
 }
