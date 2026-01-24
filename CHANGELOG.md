@@ -144,11 +144,6 @@ export const fetchUser = defineAction((req) => {
 * You want predictable memory usage per worker
 * You value crash isolation over I/O concurrency
 
-**Stay on v26.11.0 if:**
-* Your application heavily relies on `setTimeout` or event subscriptions
-* You need Node.js-style async I/O patterns
-* You're using existing code that depends on the event loop
-
 ### 🙏 Acknowledgments
 
 This release represents a complete rethinking of TitanPL's execution model, prioritizing **simplicity, determinism, and debuggability** over async I/O performance.
