@@ -1,0 +1,12 @@
+{
+  "date": "2026-01-30_20-06-44",
+  "commit": "05c0b9b",
+  "dev": {
+    "ok": false,
+    "stage": "dev-missing"
+  },
+  "production": {
+    "ok": false,
+    "stage": "prod-missing"
+  }
+}
