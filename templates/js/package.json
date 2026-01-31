@@ -20,6 +20,6 @@
   },
   "devDependencies": {
     "eslint": "^9.39.2",
-    "eslint-plugin-titanpl": "^1.0.0"
+    "eslint-plugin-titanpl": "^2.0.0"
   }
 }

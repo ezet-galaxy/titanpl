@@ -8,9 +8,8 @@
         "moduleResolution": "node",
         "baseUrl": ".",
         "paths": {
-            "*": [
-                "./app/*"
-            ]
+            "@titan": ["./app/titan"],
+            "*": ["./app/*"]
         }
     },
     "include": [

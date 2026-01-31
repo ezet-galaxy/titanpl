@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "*": ["*"]
+        "@titan": ["./app/titan"],
+        "*": ["./app/*"]
     }
   },
   "include": ["app/**/*", "titan/**/*"]

@@ -1,4 +1,3 @@
-
 // -- Module Definitions (for imports from "titan") --
 
 export interface RouteHandler {
@@ -18,6 +17,37 @@ export const Titan: TitanBuilder;
 export default builder;
 
 export declare function defineAction<T>(actionFn: (req: TitanRequest) => T): (req: TitanRequest) => T;
+
+// -- Named Exports (mirrors of global `t` utilities) --
+
+export const fetch: TitanRuntimeUtils["fetch"];
+export const log: TitanRuntimeUtils["log"];
+export const read: (path: string) => string;
+
+export const jwt: TitanRuntimeUtils["jwt"];
+export const password: TitanRuntimeUtils["password"];
+
+export const db: TitanRuntimeUtils["db"];
+
+export const fs: TitanCore.FileSystem;
+export const path: TitanCore.Path;
+
+export const crypto: TitanCore.Crypto;
+export const buffer: TitanCore.BufferModule;
+
+export const ls: TitanCore.LocalStorage;
+export const localStorage: TitanCore.LocalStorage;
+export const session: TitanCore.Session;
+export const cookies: TitanCore.Cookies;
+
+export const os: TitanCore.OS;
+export const net: TitanCore.Net;
+export const proc: TitanCore.Process;
+
+export const time: TitanCore.Time;
+export const url: TitanCore.URLModule;
+export const response: TitanCore.ResponseModule;
+export const valid: any;
 
 // -- Global Definitions (Runtime Environment) --
 
@@ -77,12 +107,12 @@ declare global {
             method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
             headers?: Record<string, string>;
             body?: string | object;
-        }): {
+        }): Promise<{
             ok: boolean;
             status?: number;
             body?: string;
             error?: string;
-        };
+        }>;
 
         jwt: {
             sign(payload: object, secret: string, options?: { expiresIn?: string | number }): string;
@@ -247,3 +277,5 @@ declare global {
         }
     }
 }
+
+export { };
