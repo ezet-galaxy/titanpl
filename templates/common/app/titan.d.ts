@@ -1,20 +1,19 @@
 // -- Module Definitions (for imports from "titan") --
 
-export interface RouteHandler {
-    reply(value: any): void;
-    action(name: string): void;
+export interface TitanRequest {
+    body: any;
+    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+    path: string;
+    headers: {
+        host?: string;
+        "content-type"?: string;
+        "user-agent"?: string;
+        authorization?: string;
+        [key: string]: string | undefined;
+    };
+    params: Record<string, string>;
+    query: Record<string, string>;
 }
-
-export interface TitanBuilder {
-    get(route: string): RouteHandler;
-    post(route: string): RouteHandler;
-    log(module: string, msg: string): void;
-    start(port?: number, msg?: string, threads?: number): Promise<void>;
-}
-
-declare const builder: TitanBuilder;
-export const Titan: TitanBuilder;
-export default builder;
 
 export declare function defineAction<T>(actionFn: (req: TitanRequest) => T): (req: TitanRequest) => T;
 
@@ -76,28 +75,11 @@ declare global {
      */
     var drift: <T>(promise: Promise<T> | T) => T;
 
-    interface TitanRequest {
-        body: any;
-        method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
-        path: string;
-        headers: {
-            host?: string;
-            "content-type"?: string;
-            "user-agent"?: string;
-            authorization?: string;
-            [key: string]: string | undefined;
-        };
-        params: Record<string, string>;
-        query: Record<string, string>;
-    }
+
 
     interface DbConnection {
         query(sql: string, params?: any[]): any[];
     }
-
-    function defineAction<T>(actionFn: (req: TitanRequest) => T): (req: TitanRequest) => T;
-
-    var req: TitanRequest;
 
     interface TitanRuntimeUtils {
         log(...args: any[]): void;
