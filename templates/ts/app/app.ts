@@ -1,7 +1,4 @@
-import t from "../titan/titan";
-
-
-
+import t from "@titan/route";
 
 t.post("/hello").action("hello") // pass a json payload { "name": "titan" }
 

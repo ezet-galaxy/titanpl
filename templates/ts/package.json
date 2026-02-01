@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "eslint": "^9.39.2",
-    "eslint-plugin-titanpl": "^1.0.0"
+    "eslint-plugin-titanpl": "latest",
+    "@typescript-eslint/parser": "^8.54.0"
   }
 }

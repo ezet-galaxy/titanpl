@@ -2,7 +2,7 @@ interface HelloResponse {
     message: string;
 }
 
-import { defineAction } from "../../titan/runtime";
+import { defineAction } from "@titan/native";
 
 export const hello = defineAction((req): HelloResponse => {
     return {
