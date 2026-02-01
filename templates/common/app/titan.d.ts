@@ -69,7 +69,6 @@ export const valid: any;
  * const resp = drift t.fetch("http://api.titan.com");
  * ```
  */
-declare var drift: <T>(promise: Promise<T> | T) => T;
 
 declare global {
     /**
