@@ -1,7 +1,5 @@
 // -- Module Definitions (for imports from "titan") --
 
-export * from "./runtime.js";
-
 export interface RouteHandler {
     reply(value: any): void;
     action(name: string): void;
