@@ -4,48 +4,41 @@ export interface TitanRequest {
     body: any;
     method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
     path: string;
-    headers: {
-        host?: string;
-        "content-type"?: string;
-        "user-agent"?: string;
-        authorization?: string;
-        [key: string]: string | undefined;
-    };
+    headers: Record<string, string | undefined>;
     params: Record<string, string>;
     query: Record<string, string>;
 }
 
-export declare function defineAction<T>(actionFn: (req: TitanRequest) => T): (req: TitanRequest) => T;
+export function defineAction<T>(
+    handler: (req: TitanRequest) => T
+): (req: TitanRequest) => T;
 
-// -- Named Exports (mirrors of global `t` utilities) --
+export const fetch: typeof t.fetch;
+export const log: typeof t.log;
+export const read: typeof t.read;
 
-export const fetch: TitanRuntimeUtils["fetch"];
-export const log: TitanRuntimeUtils["log"];
-export const read: (path: string) => string;
+export const jwt: typeof t.jwt;
+export const password: typeof t.password;
+export const db: typeof t.db;
 
-export const jwt: TitanRuntimeUtils["jwt"];
-export const password: TitanRuntimeUtils["password"];
+export const fs: typeof t.fs;
+export const path: typeof t.path;
 
-export const db: TitanRuntimeUtils["db"];
+export const crypto: typeof t.crypto;
+export const buffer: typeof t.buffer;
 
-export const fs: TitanCore.FileSystem;
-export const path: TitanCore.Path;
+export const ls: typeof t.ls;
+export const localStorage: typeof t.localStorage;
+export const session: typeof t.session;
+export const cookies: typeof t.cookies;
 
-export const crypto: TitanCore.Crypto;
-export const buffer: TitanCore.BufferModule;
+export const os: typeof t.os;
+export const net: typeof t.net;
+export const proc: typeof t.proc;
 
-export const ls: TitanCore.LocalStorage;
-export const localStorage: TitanCore.LocalStorage;
-export const session: TitanCore.Session;
-export const cookies: TitanCore.Cookies;
-
-export const os: TitanCore.OS;
-export const net: TitanCore.Net;
-export const proc: TitanCore.Process;
-
-export const time: TitanCore.Time;
-export const url: TitanCore.URLModule;
-export const response: TitanCore.ResponseModule;
+export const time: typeof t.time;
+export const url: typeof t.url;
+export const response: typeof t.response;
 export const valid: any;
 
 // -- Global Definitions (Runtime Environment) --

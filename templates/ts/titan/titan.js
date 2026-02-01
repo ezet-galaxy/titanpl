@@ -2,7 +2,6 @@ import { bundle } from "./bundle.js";
 import fs from "fs";
 import path from "path";
 
-export * from "./runtime.js";
 
 const cyan = (t) => `\x1b[36m${t}\x1b[0m`;
 const green = (t) => `\x1b[32m${t}\x1b[0m`;
@@ -78,8 +77,9 @@ const t = {
      * @param {number} [port=3000] 
      * @param {string} [msg=""] 
      * @param {number} [threads] 
+     * @param {number} [stack_mb] 
      */
-    async start(port = 3000, msg = "", threads) {
+    async start(port = 3000, msg = "", threads, stack_mb) {
         try {
             console.log(cyan("[Titan] Preparing runtime..."));
             await bundle();
@@ -96,7 +96,7 @@ const t = {
                 routesPath,
                 JSON.stringify(
                     {
-                        __config: { port, threads },
+                        __config: { port, threads, stack_mb },
                         routes,
                         __dynamic_routes: Object.values(dynamicRoutes).flat()
                     },

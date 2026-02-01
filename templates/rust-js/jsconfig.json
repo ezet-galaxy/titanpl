@@ -8,9 +8,15 @@
         "moduleResolution": "node",
         "baseUrl": ".",
         "paths": {
-            "@titan/native": ["./app/titan"],
-            "@titan/route": ["./titan/titan"],
-            "*": ["./app/*"]
+            "@titan/native": [
+                "app/t.native"
+            ],
+            "@titan/route": [
+                "./titan/titan"
+            ],
+            "*": [
+                "./app/*"
+            ]
         }
     },
     "include": [

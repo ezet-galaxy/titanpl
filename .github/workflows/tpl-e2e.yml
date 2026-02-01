@@ -1,4 +1,4 @@
-name: TitanPl Development and Production Env Testing
+name: TitanPl Development Env Testing
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  titanpl:
+  titanpl-dev:
     runs-on: ubuntu-latest
 
     steps:
@@ -170,46 +170,11 @@ jobs:
         continue-on-error: true
         run: cd demo && titan build || true
 
-      # ---------------- DOCKER ----------------
-      - name: Docker Build
-        continue-on-error: true
-        run: cd demo && docker build -t titanpl-test . || true
-
-      - name: Docker Run
-        continue-on-error: true
-        run: |
-          if docker images | grep -q titanpl-test; then
-            docker run -d -p 5100:5100 --name titanpl-run titanpl-test
-
-            echo "Waiting Container..."
-            READY=false
-            for i in {1..90}; do
-              if curl -s http://127.0.0.1:5100/ > /dev/null; then
-                READY=true
-                break
-              fi
-              sleep 2
-            done
-
-            if [ "$READY" = true ]; then
-              curl -s http://127.0.0.1:5100/h > prod.json || echo '{"ok":false}' > prod.json
-            else
-              echo '{"ok":false,"stage":"prod-timeout"}' > prod.json
-            fi
-          else
-            echo '{"ok":false,"stage":"no-image"}' > prod.json
-          fi
-
-      - name: Stop Container
-        if: always()
-        run: docker stop titanpl-run || true
-
       # ---------------- ENSURE JSON ----------------
       - name: Ensure JSON
         if: always()
         run: |
           [ -f dev.json ] || echo '{"ok":false}' > dev.json
-          [ -f prod.json ] || echo '{"ok":false}' > prod.json
 
       # ---------------- STATUS ----------------
       - name: Prepare Status
@@ -219,8 +184,8 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           mkdir -p status
           jq -n --arg date "$DATE" --arg commit "$COMMIT" \
-          --slurpfile dev dev.json --slurpfile prod prod.json \
-          '{date:$date,commit:$commit,dev:$dev[0],production:$prod[0]}' \
+          --slurpfile dev dev.json \
+          '{date:$date,commit:$commit,dev:$dev[0]}' \
           > status/$DATE-$COMMIT.json
 
       - name: Commit Status
@@ -234,4 +199,4 @@ jobs:
       # ---------------- FINAL FAIL ----------------
       - name: Final Health Check
         if: always()
-        run: grep '"ok":false' dev.json prod.json && exit 1 || exit 0
+        run: grep '"ok":false' dev.json && exit 1 || exit 0

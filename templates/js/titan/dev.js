@@ -247,6 +247,28 @@ async function startRustServer(retryCount = 0) {
     });
 }
 
+function prepareRuntime() {
+    try {
+        const nm = path.join(process.cwd(), "node_modules");
+        const titanPkg = path.join(nm, "@titan");
+        const routePkg = path.join(titanPkg, "route");
+
+        if (!fs.existsSync(nm)) fs.mkdirSync(nm, { recursive: true });
+        if (!fs.existsSync(titanPkg)) fs.mkdirSync(titanPkg, { recursive: true });
+
+        if (!fs.existsSync(routePkg)) {
+            fs.mkdirSync(routePkg, { recursive: true });
+            fs.writeFileSync(path.join(routePkg, "package.json"), JSON.stringify({
+                name: "@titan/route",
+                main: "../../../titan/titan.js",
+                type: "module"
+            }, null, 2));
+        }
+    } catch (e) {
+        // Ignore errors
+    }
+}
+
 /**
  * Rebuild JS runtime
  * RULE: Only show "✖ Runtime preparation failed" on error
@@ -297,6 +319,7 @@ async function rebuild() {
 }
 
 async function startDev() {
+    prepareRuntime();
     const root = process.cwd();
     const actionsDir = path.join(root, "app", "actions");
     let hasRust = false;
