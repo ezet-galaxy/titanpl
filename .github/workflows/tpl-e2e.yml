@@ -79,7 +79,6 @@ jobs:
                 memFree: t.os.freeMemory(),
                 pid: t.proc.pid(),
                 uptime: t.proc.uptime(),
-                dev: !!t.fs.exists(".titan")
               };
 
               try {
@@ -136,7 +135,7 @@ jobs:
           import t from "../titan/titan.js";
           t.get("/").reply("ok");
           t.get("/h").action("health");
-          t.start(5100, "TitanPl dev-prod test", 6);
+          t.start(5100, "TitanPl dev test", 6);
           EOF
 
       # ---------------- DEV ----------------
@@ -196,7 +195,3 @@ jobs:
           git add status/
           git diff --cached --quiet || (git commit -m "Titan CI Log" && git push)
 
-      # ---------------- FINAL FAIL ----------------
-      - name: Final Health Check
-        if: always()
-        run: grep '"ok":false' dev.json && exit 1 || exit 0

@@ -836,11 +836,49 @@ declare global {
              *
              * @example
              * ```js
-             * const conn = drift(t.db.connect("postgres://admin:secret@localhost:5432/mydb"));
+             * const conn = drift(
+             *   t.db.connect("postgres://admin:secret@localhost:5432/mydb")
+             * );
              * ```
              */
             connect(url: string): Promise<DbConnection>;
+
+            /**
+             * Execute a SQL query using the default database connection.
+             *
+             * Uses the configured `DATABASE_URL` internally.
+             * Ideal for simple and one-off queries.
+             *
+             * @example
+             * ```js
+             * const users = drift(
+             *   t.db.query("SELECT * FROM users")
+             * );
+             * ```
+             *
+             * @example
+             * ```js
+             * const user = drift(
+             *   t.db.query(
+             *     "SELECT * FROM users WHERE id = $1",
+             *     [42]
+             *   )
+             * );
+             * ```
+             *
+             * @example
+             * ```js
+             * const sql = drift(t.fs.readFile("./db/login.sql"));
+             * const rows = drift(t.db.query(sql, [email, hash]));
+             * ```
+             *
+             * @param sql - SQL query string.
+             * @param params - Optional positional parameters.
+             * @returns A promise resolving to query result rows.
+             */
+            query(sql: string, params?: any[]): Promise<any[]>;
         };
+
 
 
         // -------------------------------------------------------------------
@@ -854,7 +892,7 @@ declare global {
          * directories. All methods return `Promise` — use `drift()` to resolve.
          *
          * @see {@link TitanCore.FileSystem} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.fs)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.fs)
          */
         fs: TitanCore.FileSystem;
 
@@ -865,7 +903,7 @@ declare global {
          * cross-platform path joining, resolving, and component extraction.
          *
          * @see {@link TitanCore.Path} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.path)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.path)
          */
         path: TitanCore.Path;
 
@@ -881,7 +919,7 @@ declare global {
          * random bytes generation, and UUID creation. Async methods require `drift()`.
          *
          * @see {@link TitanCore.Crypto} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.crypto)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.crypto)
          */
         crypto: TitanCore.Crypto;
 
@@ -891,7 +929,7 @@ declare global {
          * All methods are **synchronous** — no `drift()` needed.
          *
          * @see {@link TitanCore.BufferModule} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.buffer)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.buffer)
          */
         buffer: TitanCore.BufferModule;
 
@@ -907,7 +945,7 @@ declare global {
          * **synchronous**. Useful for caching, feature flags, or small config values.
          *
          * @see {@link TitanCore.LocalStorage} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.ls)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.ls)
          */
         ls: TitanCore.LocalStorage;
 
@@ -918,7 +956,7 @@ declare global {
          * **synchronous**. Identical to `t.ls` — use whichever alias you prefer.
          *
          * @see {@link TitanCore.LocalStorage} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.localStorage)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.localStorage)
          */
         localStorage: TitanCore.LocalStorage;
 
@@ -932,7 +970,7 @@ declare global {
          * All methods are **synchronous**.
          *
          * @see {@link TitanCore.Session} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.session)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.session)
          */
         session: TitanCore.Session;
 
@@ -940,7 +978,7 @@ declare global {
          * HTTP cookie utilities for reading, setting, and deleting cookies.
          *
          * @see {@link TitanCore.Cookies} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.cookies)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.cookies)
          */
         cookies: TitanCore.Cookies;
 
@@ -956,7 +994,7 @@ declare global {
          * host machine running the Titan server.
          *
          * @see {@link TitanCore.OS} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.os)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.os)
          */
         os: TitanCore.OS;
 
@@ -966,7 +1004,7 @@ declare global {
          * All methods return `Promise` — use `drift()` to resolve.
          *
          * @see {@link TitanCore.Net} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.net)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.net)
          */
         net: TitanCore.Net;
 
@@ -976,7 +1014,7 @@ declare global {
          * All methods are **synchronous**.
          *
          * @see {@link TitanCore.Process} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.proc)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.proc)
          */
         proc: TitanCore.Process;
 
@@ -991,7 +1029,7 @@ declare global {
          * `t.time.sleep()` is async (requires `drift()`); other methods are synchronous.
          *
          * @see {@link TitanCore.Time} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.time)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.time)
          */
         time: TitanCore.Time;
 
@@ -999,9 +1037,20 @@ declare global {
          * URL parsing and formatting utilities.
          *
          * @see {@link TitanCore.URLModule} for method signatures.
-         * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Runtime APIs (t.url)
+         * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs (t.url)
          */
         url: TitanCore.URLModule;
+
+        /**
+
+
+        /**
+        * HTTP response builder utilities.
+        * @see https://www.npmjs.com/package/@titanpl/13-titan-core — TitanCore Valid Extension
+        */
+        response: TitanCore.ResponseModule;
+
+
 
         /**
          * Runtime validation utilities.
@@ -1009,7 +1058,7 @@ declare global {
          * Provides schema-based validation for request payloads and other data.
          * Works with the `@titanpl/valid` package for advanced rules.
          *
-         * @see https://titan-docs-ez.vercel.app/docs/12-sdk — TitanPl SDK
+         * @see https://www.npmjs.com/package/@titanpl/valid — TitanPl Valid Extension
          */
         valid: any;
 
@@ -1041,6 +1090,7 @@ declare global {
      * ```
      *
      * @see https://titan-docs-ez.vercel.app/docs/04-runtime-apis — Full API reference
+     * @see https://titan-docs-ez.vercel.app/docs/13-titan-core — TitanCore Runtime APIs
      */
     const t: TitanRuntimeUtils;
 
@@ -1067,6 +1117,9 @@ declare global {
     // -----------------------------------------------------------------------
 
     namespace TitanCore {
+        interface TitanResponse {
+            readonly __titan_response: true;
+        }
         /**
          * Asynchronous file system operations.
          *
@@ -1903,6 +1956,72 @@ declare global {
              */
             SearchParams: any;
         }
+
+
+
+        interface ResponseModule {
+
+            /**
+             * Return a JSON response.
+             * Body is automatically JSON.stringify-ed.
+             *
+             * @example
+             * ```js
+             * return t.response.json({ ok: true });
+             * ```
+             */
+            json(
+                data: any,
+                status?: number,
+                extraHeaders?: Record<string, string>
+            ): TitanResponse;
+
+            /**
+             * Return a plain-text response.
+             * Content-Type: text/plain
+             *
+             * @example
+             * ```js
+             * return t.response.text("Hello World");
+             * ```
+             */
+            text(
+                content: string,
+                status?: number,
+                extraHeaders?: Record<string, string>
+            ): TitanResponse;
+
+            /**
+             * Return an HTML response.
+             * Content-Type: text/html
+             *
+             * @example
+             * ```js
+             * return t.response.html("<h1>Hello</h1>");
+             * ```
+             */
+            html(
+                content: string,
+                status?: number,
+                extraHeaders?: Record<string, string>
+            ): TitanResponse;
+
+            /**
+             * Return a redirect response.
+             * Defaults to HTTP 302.
+             *
+             * @example
+             * ```js
+             * return t.response.redirect("/login");
+             * ```
+             */
+            redirect(
+                url: string,
+                status?: number,
+                extraHeaders?: Record<string, string>
+            ): TitanResponse;
+        }
+
     }
 }
 

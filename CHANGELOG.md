@@ -1,5 +1,136 @@
 # Changelog
 
+## [26.13.7] – 2026-02-02
+
+### Summary
+
+Stabilized the Titan runtime contract with a fully typed HTTP response system, added `t.db.query()` as a first-class convenience API, hardened Drift-safe async typings across core modules.
+
+---
+
+### Breaking Changes
+
+*None*
+
+This release is strictly additive and corrective.
+
+---
+
+## 🆕 Additions
+
+### **Typed HTTP Response System**
+
+Introduced an explicit response contract to prevent `any` leakage and enforce correct return semantics.
+
+* Added `TitanCore.TitanResponse` (opaque runtime response marker)
+* Added `TitanCore.ResponseModule`
+* Fully typed:
+
+  * `t.response.json`
+  * `t.response.text`
+  * `t.response.html`
+  * `t.response.redirect`
+* Actions may now explicitly return either:
+
+  * a plain object (auto-JSON)
+  * or a `TitanResponse`
+
+---
+
+### **`t.db.query()` Convenience API**
+
+Added a connection-less database query helper for common use cases.
+
+* New API: `t.db.query(sql, params?)`
+* Internally uses `DATABASE_URL`
+* Eliminates boilerplate for one-off queries
+* Retains `DbConnection.query()` for advanced workflows
+
+All database APIs now include **hover-friendly JSDoc examples**.
+
+---
+
+### **Types-as-Documentation**
+
+Expanded `.d.ts` files to act as first-class documentation:
+
+* Compact, IDE-optimized examples for:
+
+  * `t.db.connect`
+  * `t.db.query`
+  * `DbConnection.query`
+  * `t.fs.readFile` (SQL-file workflow)
+  * `t.response.*`
+* Examples intentionally kept short for IntelliSense hover clarity
+
+---
+
+## 🐛 Fixes
+
+### **Invalid TypeScript Declarations**
+
+Fixed multiple structural TS errors:
+
+* Removed illegal nested `interface` declarations
+* Removed free text inside interface bodies
+* Fixed unterminated JSDoc blocks breaking downstream parsing
+* Ensured all shared types live at top-level or inside `TitanCore` namespace
+
+---
+
+### **Async Drift Safety**
+
+Corrected incorrect sync usage in type definitions and examples:
+
+* Enforced `drift()` usage for async APIs:
+
+  * `t.crypto.hash`
+  * `t.password.hash / verify`
+  * `t.net.ip`
+  * `t.fs.*`
+* Prevented false-positive runtime examples that previously compiled but failed at runtime
+
+
+---
+
+## 🔧 Improvements
+
+### **Runtime Contract Hardening**
+
+* Explicit response typing prevents accidental mixed return values
+* Database API ergonomics improved without sacrificing control
+
+---
+
+### **Documentation Accuracy**
+
+* All examples in `.d.ts` are now:
+
+  * Drift-safe
+  * Replay-safe
+  * Valid in both dev and prod
+* Removed misleading examples that relied on implicit async behavior
+
+---
+
+### Version
+
+* `26.13.7`
+
+---
+
+### Affected Areas
+
+| Area                       | Changes                       |
+| -------------------------- | ----------------------------- |
+| `TitanCore.ResponseModule` | **New**                       |
+| `TitanResponse`            | **New**                       |
+| `t.db.query`               | **New**                       |
+| Database typings           | Examples + ergonomics         |
+| `.d.ts` files              | Structural fixes, doc clarity |
+
+---
+
 ## [26.13.6] – 2026-02-01
 
 ### Summary
@@ -46,6 +177,8 @@ Added `@titan/route` → `./titan/titan` and `@titan/native` → `./app/t` acros
 | `templates/ts/` | **Aliases**, TS ESLint, runtime files removed |
 | `templates/rust-js/` | **Aliases**, `eslint.config.js` |
 | `templates/rust-ts/` | **Aliases**, TS ESLint, runtime files removed
+
+---
 
 ## [26.13.3] – 2026-01-30
 
