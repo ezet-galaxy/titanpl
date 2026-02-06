@@ -21,6 +21,7 @@
     },
     "include": [
         "app/**/*",
-        "titan/**/*"
+        "titan/**/*",
+        "node_modules/**/titan-ext.d.ts"
     ]
 }

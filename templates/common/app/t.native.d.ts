@@ -326,14 +326,6 @@ export const time: typeof t.time;
 export const url: typeof t.url;
 
 /**
- * HTTP response builder for controlling status codes, headers, and content types.
- *
- * Re-exported from the `t` global for module-style imports.
- * @see {@link TitanCore.ResponseModule} for full documentation.
- */
-export const response: typeof t.response;
-
-/**
  * Runtime validation utilities.
  *
  * Provides schema-based validation for request data. Works with
@@ -1045,15 +1037,6 @@ declare global {
         url: TitanCore.URLModule;
 
         /**
-
-
-        /**
-        * HTTP response builder utilities.
-        * @see https://www.npmjs.com/package/@titanpl/13-titan-core — TitanCore Valid Extension
-        */
-        response: TitanCore.ResponseModule;
-
-
 
         /**
          * Runtime validation utilities.
@@ -1992,71 +1975,6 @@ declare global {
              * URL search parameters utility (similar to the Web API `URLSearchParams`).
              */
             SearchParams: any;
-        }
-
-
-
-        interface ResponseModule {
-
-            /**
-             * Return a JSON response.
-             * Body is automatically JSON.stringify-ed.
-             *
-             * @example
-             * ```js
-             * return t.response.json({ ok: true });
-             * ```
-             */
-            json(
-                data: any,
-                status?: number,
-                extraHeaders?: Record<string, string>
-            ): TitanResponse;
-
-            /**
-             * Return a plain-text response.
-             * Content-Type: text/plain
-             *
-             * @example
-             * ```js
-             * return t.response.text("Hello World");
-             * ```
-             */
-            text(
-                content: string,
-                status?: number,
-                extraHeaders?: Record<string, string>
-            ): TitanResponse;
-
-            /**
-             * Return an HTML response.
-             * Content-Type: text/html
-             *
-             * @example
-             * ```js
-             * return t.response.html("<h1>Hello</h1>");
-             * ```
-             */
-            html(
-                content: string,
-                status?: number,
-                extraHeaders?: Record<string, string>
-            ): TitanResponse;
-
-            /**
-             * Return a redirect response.
-             * Defaults to HTTP 302.
-             *
-             * @example
-             * ```js
-             * return t.response.redirect("/login");
-             * ```
-             */
-            redirect(
-                url: string,
-                status?: number,
-                extraHeaders?: Record<string, string>
-            ): TitanResponse;
         }
 
     }

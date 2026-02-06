@@ -8,6 +8,7 @@
     },
     "include": [
         "index.js",
-        "node_modules/titan-sdk/index.d.ts"
+        "node_modules/titan-sdk/index.d.ts",
+        "node_modules/**/titan-ext.d.ts"
     ]
 }
