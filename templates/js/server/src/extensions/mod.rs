@@ -137,8 +137,7 @@ pub struct TitanRuntime {
     pub async_rx: crossbeam::channel::Receiver<WorkerAsyncResult>,
     pub async_tx: crossbeam::channel::Sender<WorkerAsyncResult>,
     pub pending_drifts: HashMap<u32, v8::Global<v8::PromiseResolver>>,
-    pub pending_requests:
-        HashMap<u32, tokio::sync::oneshot::Sender<crate::runtime::WorkerResult>>,
+    pub pending_requests: HashMap<u32, tokio::sync::oneshot::Sender<crate::runtime::WorkerResult>>,
     pub drift_counter: u32,
     pub request_counter: u32,
 
@@ -218,22 +217,28 @@ pub fn init_runtime_worker(
         global.set(scope, root_key.into(), root_str.into());
 
         // Pre-internalize common V8 string keys
+        // NOTE: Must create the Local string first, then promote to Global
+        // to avoid double &mut scope borrow in a single expression.
+        let s_method = v8::String::new(scope, "method").unwrap();
+        let s_path = v8::String::new(scope, "path").unwrap();
+        let s_headers = v8::String::new(scope, "headers").unwrap();
+        let s_params = v8::String::new(scope, "params").unwrap();
+        let s_query = v8::String::new(scope, "query").unwrap();
+        let s_raw_body = v8::String::new(scope, "rawBody").unwrap();
+        let s_request_id = v8::String::new(scope, "__titan_request_id").unwrap();
+        let s_titan_req = v8::String::new(scope, "__titan_req").unwrap();
+        let s_titan_action = v8::String::new(scope, "__titan_action").unwrap();
+
         let interned = InternedKeys {
-            method: v8::Global::new(scope, v8::String::new(scope, "method").unwrap()),
-            path: v8::Global::new(scope, v8::String::new(scope, "path").unwrap()),
-            headers: v8::Global::new(scope, v8::String::new(scope, "headers").unwrap()),
-            params: v8::Global::new(scope, v8::String::new(scope, "params").unwrap()),
-            query: v8::Global::new(scope, v8::String::new(scope, "query").unwrap()),
-            raw_body: v8::Global::new(scope, v8::String::new(scope, "rawBody").unwrap()),
-            request_id: v8::Global::new(
-                scope,
-                v8::String::new(scope, "__titan_request_id").unwrap(),
-            ),
-            titan_req: v8::Global::new(scope, v8::String::new(scope, "__titan_req").unwrap()),
-            titan_action: v8::Global::new(
-                scope,
-                v8::String::new(scope, "__titan_action").unwrap(),
-            ),
+            method: v8::Global::new(scope, s_method),
+            path: v8::Global::new(scope, s_path),
+            headers: v8::Global::new(scope, s_headers),
+            params: v8::Global::new(scope, s_params),
+            query: v8::Global::new(scope, s_query),
+            raw_body: v8::Global::new(scope, s_raw_body),
+            request_id: v8::Global::new(scope, s_request_id),
+            titan_req: v8::Global::new(scope, s_titan_req),
+            titan_action: v8::Global::new(scope, s_titan_action),
         };
 
         // Load Actions
@@ -356,7 +361,7 @@ pub fn v8_to_json<'s>(
     // For arrays and objects: use V8's native JSON.stringify which is heavily optimized
     // This avoids the overhead of recursive property enumeration from Rust side
     if value.is_object() || value.is_array() {
-        if let Some(json_str) = v8::json::stringify(scope, value, None) {
+        if let Some(json_str) = v8::json::stringify(scope, value) {
             let rust_str = json_str.to_rust_string_lossy(scope);
             if let Ok(parsed) = serde_json::from_str(&rust_str) {
                 return parsed;
