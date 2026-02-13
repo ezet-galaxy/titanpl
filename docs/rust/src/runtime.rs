@@ -1,3 +1,10 @@
+//! Worker Pool Management (Performance Optimized)
+//!
+//! Features:
+//! 1. Work-stealing fallback strategy.
+//! 2. Bounded channel capacity for pipeline handling.
+//! 3. Batch-ready architecture for HTTP pipelining.
+//! 4. Zero-copy / deferred cloning where possible.
 
 use bytes::Bytes;
 use crossbeam::channel::{bounded, Sender, TrySendError};
@@ -50,6 +57,7 @@ impl RuntimeManager {
         let (async_tx, mut async_rx) = mpsc::channel::<AsyncOpRequest>(2048);
         let tokio_handle = tokio::runtime::Handle::current();
 
+        // Spawn Tokio Async Handler (for drift operations)
         tokio_handle.spawn(async move {
             while let Some(req) = async_rx.recv().await {
                 let drift_id = req.drift_id;
@@ -67,6 +75,7 @@ impl RuntimeManager {
             }
         });
 
+        // Create worker channels
         let channel_capacity = 256;
         let mut workers = Vec::with_capacity(num_threads);
 
@@ -83,6 +92,7 @@ impl RuntimeManager {
             final_txs.push(tx.clone());
         }
 
+        // Spawn Worker Threads
         for (i, (tx, rx)) in channels.into_iter().enumerate() {
             let my_tx = tx.clone();
             let root = project_root.clone();
@@ -130,6 +140,7 @@ impl RuntimeManager {
         }
     }
 
+    /// Execute an action on a worker. Uses round-robin with work-stealing fallback.
     pub async fn execute(
         &self,
         action: String,
@@ -152,6 +163,7 @@ impl RuntimeManager {
             response_tx: tx,
         };
 
+        // Work-Stealing Distribution
         let start_idx = self.round_robin_counter.fetch_add(1, Ordering::Relaxed) % self.num_workers;
         let mut cmd = WorkerCommand::Request(task);
 
@@ -173,6 +185,7 @@ impl RuntimeManager {
             }
         }
 
+        // All workers full — blocking send to the original target as last resort
         self.request_txs[start_idx]
             .send(cmd)
             .map_err(|e| e.to_string())?;
@@ -184,15 +197,21 @@ impl RuntimeManager {
     }
 }
 
+/// Handle a new incoming request.
+///
+/// OPTIMIZATION: Deferred cloning.
+/// Only stores data if drift (async suspend) happens.
 fn handle_new_request(task: RequestTask, rt: &mut TitanRuntime) {
     rt.request_counter += 1;
     let request_id = rt.request_counter;
 
+    // Move response_tx into pending (partial move of task — other fields remain accessible)
     rt.pending_requests.insert(request_id, task.response_tx);
 
     let drift_count = rt.drift_counter;
     rt.request_start_counters.insert(request_id, drift_count);
 
+    // Execute action — pass references, body is O(1) Bytes clone
     extensions::execute_action_optimized(
         rt,
         request_id,
@@ -205,9 +224,12 @@ fn handle_new_request(task: RequestTask, rt: &mut TitanRuntime) {
         &task.query,
     );
 
+    // Deferred cloning decision
     if !rt.pending_requests.contains_key(&request_id) {
+        // Completed synchronously — no data needed, minimal cleanup
         rt.request_start_counters.remove(&request_id);
     } else {
+        // Suspended via drift — MOVE (not clone) data for resume replay.
         rt.active_requests.insert(
             request_id,
             extensions::RequestData {

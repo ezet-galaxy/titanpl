@@ -1,3 +1,4 @@
+
 use v8;
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -104,7 +105,6 @@ pub fn load_project_extensions(root: PathBuf) {
         }
     }
     
-    // Generic scanner helper
     let scan_dir = |path: PathBuf, modules: &mut Vec<ModuleDef>, libs: &mut Vec<Library>, all_natives: &mut Vec<NativeFnEntry>| {
         if !path.exists() { return; }
         for entry in WalkDir::new(&path).follow_links(true).min_depth(1).max_depth(4) {
@@ -120,10 +120,7 @@ pub fn load_project_extensions(root: PathBuf) {
                 if let Some(native_conf) = config.native {
                      let lib_path = dir.join(&native_conf.path);
                      unsafe {
-                         // Try loading library
                          let lib_load = Library::new(&lib_path);
-                         // If failed, try resolving relative to current dir or LD_LIBRARY_PATH implicit
-                         // But usually absolute path from `dir` works.
                          match lib_load {
                             Ok(lib) => {
                                  for (fn_name, fn_conf) in native_conf.functions {
@@ -152,12 +149,10 @@ pub fn load_project_extensions(root: PathBuf) {
         }
     };
 
-    // Scan node_modules
     if node_modules.exists() {
         scan_dir(node_modules, &mut modules, &mut libs, &mut all_natives);
     }
 
-    // Scan .ext (Production / Docker)
     let ext_dir = root.join(".ext");
     if ext_dir.exists() {
         scan_dir(ext_dir, &mut modules, &mut libs, &mut all_natives);

@@ -1,3 +1,7 @@
+//! Action Management and Dynamic Routing
+//!
+//! Handles resolution of action directories, scanning for available actions,
+//! and matching dynamic routes (e.g. `/users/:id`).
 
 use std::collections::HashMap;
 use std::env;
@@ -5,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
+/// Route configuration (loaded from routes.json)
 #[derive(Debug, Deserialize, Clone)]
 pub struct RouteVal {
     pub r#type: String,
@@ -19,15 +24,19 @@ pub struct DynamicRoute {
     pub action: String,
 }
 
+/// Resolve the directory path where actions are stored.
 pub fn resolve_actions_dir() -> PathBuf {
+    // Respect explicit override first
     if let Ok(override_dir) = env::var("TITAN_ACTIONS_DIR") {
         return PathBuf::from(override_dir);
     }
 
+    // Production container layout
     if Path::new("/app/actions").exists() {
         return PathBuf::from("/app/actions");
     }
 
+    // Try to walk up from the executing binary to discover `<...>/server/src/actions`
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             if let Some(target_dir) = parent.parent() {
@@ -45,9 +54,11 @@ pub fn resolve_actions_dir() -> PathBuf {
         }
     }
 
+    // Fall back to local ./src/actions
     PathBuf::from("./src/actions")
 }
 
+/// Try to find the directory that contains compiled action bundles.
 pub fn find_actions_dir(project_root: &PathBuf) -> Option<PathBuf> {
     let candidates = [
         project_root.join("server").join("src").join("actions"),
@@ -69,6 +80,7 @@ pub fn find_actions_dir(project_root: &PathBuf) -> Option<PathBuf> {
     None
 }
 
+/// Match a dynamic route against the current request path.
 pub fn match_dynamic_route(
     method: &str,
     path: &str,
@@ -127,9 +139,11 @@ pub fn match_dynamic_route(
     None
 }
 
+/// Scan the resolved actions directory and return a map of action names to file paths.
 pub fn scan_actions(root: &PathBuf) -> HashMap<String, PathBuf> {
     let mut map = HashMap::new();
     
+    // Locate actions dir - Priority: project root relative paths
     let dir = match find_actions_dir(root) {
         Some(d) => d,
         None => {
@@ -138,6 +152,7 @@ pub fn scan_actions(root: &PathBuf) -> HashMap<String, PathBuf> {
         }
     };
 
+    // Scanning actions
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -151,6 +166,7 @@ pub fn scan_actions(root: &PathBuf) -> HashMap<String, PathBuf> {
             let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             if file_stem.is_empty() { continue; }
             
+            // Found action
             map.insert(file_stem.to_string(), path);
         }
     }

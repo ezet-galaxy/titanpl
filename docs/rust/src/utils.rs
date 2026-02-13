@@ -1,3 +1,4 @@
+//! Terminal styling and utility functions.
 
 pub fn blue(s: &str) -> String {
     format!("\x1b[38;5;39m{}\x1b[0m", s)

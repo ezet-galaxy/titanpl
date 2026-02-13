@@ -1,3 +1,4 @@
+
 pub fn blue(s: &str) -> String {
     format!("\x1b[38;5;39m{}\x1b[0m", s)
 }
@@ -29,5 +30,3 @@ pub fn parse_expires_in(value: &str) -> Option<u64> {
         _ => None,
     }
 }
-
-

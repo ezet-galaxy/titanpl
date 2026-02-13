@@ -8,9 +8,7 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
     // ensure t exists early
     if (!globalThis.t) globalThis.t = {};
 
-    // -----------------------------
     // defineAction identity helper
-    // -----------------------------
     globalThis.defineAction = (fn) => {
         if (fn.__titanWrapped) return fn;
 
@@ -49,25 +47,19 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
     };
 
 
-    // -----------------------------
     // TextDecoder Polyfill
-    // -----------------------------
     globalThis.TextDecoder = class TextDecoder {
         decode(buffer) {
             return t.decodeUtf8(buffer);
         }
     };
 
-    // -----------------------------
     // process.env
-    // -----------------------------
     globalThis.process = {
         env: t.loadEnv ? t.loadEnv() : {}
     };
 
-    // -----------------------------
     // Async Proxy Creator
-    // -----------------------------
     function createAsyncOp(op) {
         return new Proxy(op, {
             get(target, prop) {
@@ -88,11 +80,31 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
         });
     }
 
-    // -----------------------------
-    // Response API
-    // -----------------------------
+    // Internal helper to normalize the second argument:
+    function _parseResponseOpts(secondArg, thirdArg) {
+        let status = 200;
+        let extraHeaders = {};
+
+        if (secondArg !== undefined && secondArg !== null && typeof secondArg === 'object') {
+            // Options object form: { status: N, headers: {...} }
+            status = secondArg.status || 200;
+            extraHeaders = secondArg.headers || {};
+            // Also merge thirdArg if provided (defensive)
+            if (thirdArg && typeof thirdArg === 'object') {
+                extraHeaders = { ...extraHeaders, ...thirdArg };
+            }
+        } else {
+            // Positional form: (status, extraHeaders)
+            status = secondArg || 200;
+            extraHeaders = thirdArg || {};
+        }
+
+        return { status, extraHeaders };
+    }
+
     const titanResponse = {
-        json(data, status = 200, extraHeaders = {}) {
+        json(data, second, third) {
+            const { status, extraHeaders } = _parseResponseOpts(second, third);
             return {
                 _isResponse: true,
                 status,
@@ -100,7 +112,8 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
                 body: JSON.stringify(data)
             };
         },
-        text(data, status = 200, extraHeaders = {}) {
+        text(data, second, third) {
+            const { status, extraHeaders } = _parseResponseOpts(second, third);
             return {
                 _isResponse: true,
                 status,
@@ -108,7 +121,8 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
                 body: String(data)
             };
         },
-        html(data, status = 200, extraHeaders = {}) {
+        html(data, second, third) {
+            const { status, extraHeaders } = _parseResponseOpts(second, third);
             return {
                 _isResponse: true,
                 status,
@@ -116,7 +130,11 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
                 body: String(data)
             };
         },
-        redirect(url, status = 302, extraHeaders = {}) {
+        redirect(url, second, third) {
+            const { status: rawStatus, extraHeaders } = _parseResponseOpts(second, third);
+            // For redirects, default to 302 and ensure 3xx range
+            let status = rawStatus;
+            if (status < 300 || status >= 400) status = 302;
             return {
                 _isResponse: true,
                 status,
@@ -128,9 +146,7 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
 
     t.response = titanResponse;
 
-    // -----------------------------
     // Drift Support
-    // -----------------------------
     globalThis.drift = function (value) {
         if (Array.isArray(value)) {
             for (const item of value) {
@@ -145,9 +161,7 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
         return t._drift_call(value);
     };
 
-    // -----------------------------
     // Safe Wrappers
-    // -----------------------------
 
     // fetch
     if (t.fetch && !t.fetch.__titanWrapped) {

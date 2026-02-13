@@ -574,20 +574,15 @@ export function updateTitan() {
         }
     }
 
-    // app/titan.d.ts (JS typing contract)
+    // ----------------------------------------------------------
+    // 3. Update app/ with common files (t.native.js, definitions)
+    // ----------------------------------------------------------
     const appDir = path.join(root, "app");
-    const templatesDts = path.join(templatesRoot, "app", "titan.d.ts");
-    const commonDts = path.join(commonRoot, "app", "titan.d.ts");
+    const commonApp = path.join(commonRoot, "app");
 
-    const finalDtsSrc = fs.existsSync(templatesDts) ? templatesDts : (fs.existsSync(commonDts) ? commonDts : null);
-    const destDts = path.join(appDir, "titan.d.ts");
-
-    if (finalDtsSrc) {
-        if (!fs.existsSync(appDir)) {
-            fs.mkdirSync(appDir);
-        }
-        fs.copyFileSync(finalDtsSrc, destDts);
-        console.log(green("✔ Updated app/titan.d.ts"));
+    if (fs.existsSync(commonApp)) {
+        copyDir(commonApp, appDir);
+        console.log(green("✔ Updated app/ common files"));
     }
 
 
