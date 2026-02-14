@@ -1,3 +1,18 @@
+//! Static Action Detection via OXC Semantic Analysis
+//!
+//! Purpose:
+//! Bypass V8 entirely for actions that return constant/static values.
+//! Uses OXC (Oxidation Compiler) to parse JavaScript into a real AST and
+//! perform semantic analysis with constant propagation.
+//!
+//! Mechanism:
+//! 1. Parses bundled action files (.jsbundle) with OXC.
+//! 2. Builds semantic data (symbol table, scopes).
+//! 3. Evaluates `t.response.json/text/html()` calls for static constancy.
+//! 4. If all calls produce the same static value, the action is fast-pathed.
+//!
+//! Dependencies:
+//! Requires `oxc` crate with "semantic" feature.
 
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -11,6 +26,7 @@ use oxc::parser::Parser;
 use oxc::semantic::SemanticBuilder;
 use oxc::span::SourceType;
 
+/// A pre-computed HTTP response for a static action.
 #[derive(Clone, Debug)]
 pub struct StaticResponse {
     pub body: Bytes,
@@ -28,18 +44,21 @@ impl PartialEq for StaticResponse {
     }
 }
 
+/// Options extracted from the second argument of t.response.*() call.
 #[derive(Clone, Debug, Default)]
 struct ResponseOptions {
     status: u16,
     headers: Vec<(String, String)>,
 }
 
+/// Registry of actions that have been detected as static.
 #[derive(Clone)]
 pub struct FastPathRegistry {
     actions: HashMap<String, StaticResponse>,
 }
 
 impl FastPathRegistry {
+    /// Build a FastPathRegistry by scanning action files in the given directory.
     pub fn build(actions_dir: &Path) -> Self {
         let mut actions = HashMap::new();
 
@@ -101,17 +120,20 @@ impl FastPathRegistry {
         Self { actions }
     }
 
+    /// Check if an action has a fast-path static response.
     #[inline(always)]
     pub fn get(&self, action_name: &str) -> Option<&StaticResponse> {
         self.actions.get(action_name)
     }
 
+    /// Number of registered fast-path actions.
     pub fn len(&self) -> usize {
         self.actions.len()
     }
 }
 
 impl StaticResponse {
+    /// Convert to an Axum response. Uses Bytes::clone() which is O(1) ref-count bump.
     #[inline(always)]
     pub fn to_axum_response(&self) -> axum::response::Response<axum::body::Body> {
         let mut builder = axum::response::Response::builder()
@@ -133,6 +155,7 @@ impl StaticResponse {
     }
 }
 
+/// A pre-computed response for static reply routes (t.get("/").reply("ok")).
 #[derive(Clone, Debug)]
 pub struct PrecomputedRoute {
     pub body: Bytes,
@@ -140,6 +163,7 @@ pub struct PrecomputedRoute {
 }
 
 impl PrecomputedRoute {
+    /// Create from a JSON serde_json::Value (for .reply({...}) routes)
     pub fn from_json(val: &serde_json::Value) -> Self {
         let body = serde_json::to_vec(val).unwrap_or_default();
         Self {
@@ -148,6 +172,7 @@ impl PrecomputedRoute {
         }
     }
 
+    /// Create from a text string (for .reply("text") routes)
     pub fn from_text(text: &str) -> Self {
         Self {
             body: Bytes::from(text.to_string()),
@@ -155,6 +180,7 @@ impl PrecomputedRoute {
         }
     }
 
+    /// Convert to Axum response. O(1) body clone via Bytes refcount.
     #[inline(always)]
     pub fn to_axum_response(&self) -> axum::response::Response<axum::body::Body> {
         axum::response::Response::builder()
@@ -166,9 +192,12 @@ impl PrecomputedRoute {
     }
 }
 
+/// Maximum recursion depth for static expression evaluation.
 const MAX_EVAL_DEPTH: usize = 16;
 
+/// Analyze a bundled action's source code using OXC semantic analysis.
 fn analyze_action_source(source: &str) -> Option<StaticResponse> {
+    // Phase 1: Parse
     let allocator = Allocator::default();
     let source_type = SourceType::mjs(); // ES module JavaScript
     let parser_ret = Parser::new(&allocator, source, source_type).parse();
@@ -177,9 +206,13 @@ fn analyze_action_source(source: &str) -> Option<StaticResponse> {
         return None;
     }
 
+    // Phase 2: Semantic analysis
+    // Builds symbol table, resolves all identifier references to their
+    // declaring symbols, and tracks read/write counts per symbol.
     let semantic_ret = SemanticBuilder::new().build(&parser_ret.program);
     let semantic = &semantic_ret.semantic;
 
+    // Phase 3: Find and evaluate t.response.json/text/html() calls
     let mut responses: Vec<StaticResponse> = Vec::new();
     let mut has_dynamic = false;
 
@@ -198,7 +231,10 @@ fn analyze_action_source(source: &str) -> Option<StaticResponse> {
     unique_response(&responses)
 }
 
+/// Detect if a CallExpression is `t.response.json(...)`, `t.response.text(...)`,
+/// or `t.response.html(...)`. Returns the method name if matched.
 fn detect_response_method<'a>(call: &CallExpression<'a>) -> Option<&'a str> {
+    // Callee must be: t.response.<method>
     let outer = match &call.callee {
         Expression::StaticMemberExpression(m) => m.as_ref(),
         _ => return None,
@@ -224,6 +260,7 @@ fn detect_response_method<'a>(call: &CallExpression<'a>) -> Option<&'a str> {
     }
 }
 
+/// Analyze a single t.response.*() call and attempt to produce a StaticResponse.
 fn analyze_response_call<'a>(
     call: &CallExpression<'a>,
     method: &str,
@@ -231,6 +268,7 @@ fn analyze_response_call<'a>(
     responses: &mut Vec<StaticResponse>,
     has_dynamic: &mut bool,
 ) {
+    // First argument: the body (required)
     let body_arg = match call.arguments.first() {
         Some(arg) => arg,
         None => return,
@@ -244,11 +282,13 @@ fn analyze_response_call<'a>(
         arg => arg.as_expression().unwrap(),
     };
 
+    // Second argument: options { headers: {...}, status: N } (optional)
     let opts_expr = call.arguments.get(1).and_then(|arg| match arg {
         Argument::SpreadElement(_) => None,
         arg => arg.as_expression(),
     });
 
+    // Evaluate the body statically
     let body_value = match eval_static(body_expr, semantic, 0) {
         Some(v) => v,
         None => {
@@ -257,6 +297,7 @@ fn analyze_response_call<'a>(
         }
     };
 
+    // Evaluate options if present
     let options = if let Some(opts) = opts_expr {
         match eval_static(opts, semantic, 0) {
             Some(v) => extract_response_options(&v),
@@ -272,6 +313,7 @@ fn analyze_response_call<'a>(
         }
     };
 
+    // Build the StaticResponse based on the method type
     let (serialized_body, content_type) = match method {
         "json" => {
             match serde_json::to_vec(&body_value) {
@@ -314,6 +356,7 @@ fn analyze_response_call<'a>(
     });
 }
 
+/// If all responses are identical, return that response. Otherwise None.
 fn unique_response(responses: &[StaticResponse]) -> Option<StaticResponse> {
     if responses.is_empty() {
         return None;
@@ -326,6 +369,10 @@ fn unique_response(responses: &[StaticResponse]) -> Option<StaticResponse> {
     }
 }
 
+/// Recursively evaluate a JavaScript expression to a serde_json::Value.
+///
+/// Returns `Some(value)` if the expression is provably static (constant).
+/// Returns `None` if the expression depends on runtime values (dynamic).
 fn eval_static<'a>(
     expr: &Expression<'a>,
     semantic: &oxc::semantic::Semantic<'a>,
@@ -338,6 +385,7 @@ fn eval_static<'a>(
     }
 
     match expr {
+        // Literals
         Expression::StringLiteral(lit) => {
             Some(Value::String(lit.value.to_string()))
         }
@@ -351,6 +399,7 @@ fn eval_static<'a>(
             Some(Value::Null)
         }
 
+        // Object Expression
         Expression::ObjectExpression(obj) => {
             let mut map = serde_json::Map::with_capacity(obj.properties.len());
 
@@ -367,6 +416,7 @@ fn eval_static<'a>(
             Some(Value::Object(map))
         }
 
+        // Array Expression
         Expression::ArrayExpression(arr) => {
             let mut vec = Vec::with_capacity(arr.elements.len());
 
@@ -388,10 +438,12 @@ fn eval_static<'a>(
             Some(Value::Array(vec))
         }
 
+        // Identifier Reference
         Expression::Identifier(ident) => {
             resolve_identifier(ident, semantic, depth)
         }
 
+        // Template Literal
         Expression::TemplateLiteral(tpl) => {
             if tpl.expressions.is_empty() {
                 let s = tpl.quasis.iter()
@@ -424,6 +476,7 @@ fn eval_static<'a>(
             Some(Value::String(result))
         }
 
+        // Binary Expression
         Expression::BinaryExpression(bin) => {
             if bin.operator != BinaryOperator::Addition {
                 return None;
@@ -451,6 +504,7 @@ fn eval_static<'a>(
             }
         }
 
+        // Unary Expression
         Expression::UnaryExpression(unary) => {
             if unary.operator != UnaryOperator::UnaryNegation {
                 return None;
@@ -465,6 +519,7 @@ fn eval_static<'a>(
             }
         }
 
+        // Parenthesized
         Expression::ParenthesizedExpression(paren) => {
             eval_static(&paren.expression, semantic, depth)
         }
@@ -473,6 +528,7 @@ fn eval_static<'a>(
     }
 }
 
+/// Resolve an IdentifierReference to a static value using OXC's semantic analysis.
 fn resolve_identifier<'a>(
     ident: &IdentifierReference<'a>,
     semantic: &oxc::semantic::Semantic<'a>,
@@ -515,6 +571,7 @@ fn resolve_identifier<'a>(
     }
 }
 
+/// Check if an array or object variable is mutated anywhere in the AST.
 fn is_object_mutated_in_ast<'a>(
     symbol_id: oxc::semantic::SymbolId,
     semantic: &oxc::semantic::Semantic<'a>,
@@ -529,6 +586,7 @@ fn is_object_mutated_in_ast<'a>(
 
     for node in semantic.nodes().iter() {
         match node.kind() {
+            // symbol.mutatingMethod(...)
             AstKind::CallExpression(call) => {
                 if let Expression::StaticMemberExpression(member) = &call.callee {
                     let method_name = member.property.name.as_str();
@@ -539,11 +597,13 @@ fn is_object_mutated_in_ast<'a>(
                     }
                 }
             }
+            // symbol.prop = value
             AstKind::AssignmentExpression(assign) => {
                 if is_assignment_target_our_symbol(&assign.left, symbol_id, scoping) {
                     return true;
                 }
             }
+            // delete symbol.prop
             AstKind::UnaryExpression(unary) => {
                 if unary.operator == UnaryOperator::Delete {
                     if let Expression::StaticMemberExpression(member) = &unary.argument {
@@ -565,6 +625,7 @@ fn is_object_mutated_in_ast<'a>(
     false
 }
 
+/// Check if an Expression is an IdentifierReference that resolves to the given symbol.
 fn is_identifier_for_symbol(
     expr: &Expression<'_>,
     symbol_id: oxc::semantic::SymbolId,
@@ -579,6 +640,7 @@ fn is_identifier_for_symbol(
     false
 }
 
+/// Check if an AssignmentTarget contains a member expression on our symbol.
 fn is_assignment_target_our_symbol(
     target: &AssignmentTarget<'_>,
     symbol_id: oxc::semantic::SymbolId,
@@ -595,6 +657,7 @@ fn is_assignment_target_our_symbol(
     }
 }
 
+/// Extract a property key as a String.
 fn property_key_to_string(key: &PropertyKey<'_>) -> Option<String> {
     match key {
         PropertyKey::StaticIdentifier(ident) => {
@@ -610,6 +673,7 @@ fn property_key_to_string(key: &PropertyKey<'_>) -> Option<String> {
     }
 }
 
+/// Convert a f64 number to a serde_json::Value::Number.
 fn number_to_json(v: f64) -> Option<serde_json::Value> {
     if v.is_nan() || v.is_infinite() {
         return None;
@@ -621,6 +685,7 @@ fn number_to_json(v: f64) -> Option<serde_json::Value> {
     }
 }
 
+/// Extract ResponseOptions (status + headers) from a serde_json::Value.
 fn extract_response_options(val: &serde_json::Value) -> ResponseOptions {
     let mut opts = ResponseOptions {
         status: 200,

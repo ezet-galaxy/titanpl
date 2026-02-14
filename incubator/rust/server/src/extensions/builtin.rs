@@ -809,3 +809,120 @@ fn native_finish_request(scope: &mut v8::HandleScope, mut args: v8::FunctionCall
         });
     }
 }
+
+pub fn run_async_operation(op: super::TitanAsyncOp) -> std::pin::Pin<Box<dyn std::future::Future<Output = serde_json::Value> + Send>> {
+    Box::pin(async move {
+        match op {
+            super::TitanAsyncOp::Fetch {
+                url,
+                method,
+                body,
+                headers,
+            } => {
+                let client = get_http_client();
+                let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+                
+                let mut req = client.request(m, &url);
+                
+                for (k, v) in headers {
+                    req = req.header(k, v);
+                }
+                
+                if let Some(b) = body {
+                     req = req.body(b);
+                }
+                
+                match req.send().await {
+                    Ok(resp) => {
+                         let status = resp.status().as_u16();
+                         let api_headers = resp.headers().clone();
+                         let text = resp.text().await.unwrap_or_default();
+                         
+                         let mut h_map = serde_json::Map::new();
+                         for (k, v) in api_headers.iter() {
+                             if let Ok(s) = v.to_str() {
+                                 h_map.insert(k.as_str().to_string(), serde_json::Value::String(s.to_string()));
+                             }
+                         }
+                         
+                         serde_json::json!({
+                             "_isResponse": true,
+                             "status": status,
+                             "body": text,
+                             "headers": h_map
+                         })
+                    },
+                    Err(e) => serde_json::json!({ "error": e.to_string() })
+                }
+            },
+            super::TitanAsyncOp::DbQuery { conn, query } => {
+                let conn_str = conn;
+                let query_str = query;
+                
+                let res = tokio::task::spawn_blocking(move || {
+                    let mut pool_guard = DB_POOL.lock().unwrap();
+                    if let Some(pool) = pool_guard.as_mut() {
+                        if let Some(client) = pool.get_mut(&conn_str) {
+                             match client.query(&query_str, &[]) {
+                                 Ok(rows) => {
+                                     let mut arr = Vec::new();
+                                     for row in rows {
+                                         let mut obj = serde_json::Map::new();
+                                         for (i, col) in row.columns().iter().enumerate() {
+                                              let name = col.name();
+                                              let val = if let Ok(v) = row.try_get::<_, String>(i) {
+                                                  serde_json::Value::String(v)
+                                              } else if let Ok(v) = row.try_get::<_, i32>(i) {
+                                                  serde_json::Value::Number(serde_json::Number::from(v))
+                                              } else if let Ok(v) = row.try_get::<_, bool>(i) {
+                                                  serde_json::Value::Bool(v)
+                                              } else {
+                                                  serde_json::Value::Null
+                                              };
+                                              obj.insert(name.to_string(), val);
+                                         }
+                                         arr.push(serde_json::Value::Object(obj));
+                                     }
+                                     Ok(serde_json::Value::Array(arr))
+                                 },
+                                 Err(e) => Err(e.to_string())
+                             }
+                        } else {
+                             Err("Connection not found".to_string())
+                        }
+                    } else {
+                        Err("Pool not initialized".to_string())
+                    }
+                }).await;
+                
+                match res {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(s)) => serde_json::json!({ "error": s }),
+                    Err(e) => serde_json::json!({ "error": e.to_string() })
+                }
+            },
+            super::TitanAsyncOp::FsRead { path } => {
+                let root = super::PROJECT_ROOT.get().cloned().unwrap_or(std::path::PathBuf::from("."));
+                let target = root.join(&path);
+                
+                let safe = target.canonicalize().map(|p| p.starts_with(root.canonicalize().unwrap_or(root.clone()))).unwrap_or(false);
+                
+                if safe {
+                     match tokio::fs::read_to_string(target).await {
+                         Ok(c) => serde_json::json!({ "data": c }),
+                         Err(e) => serde_json::json!({ "error": e.to_string() })
+                     }
+                } else {
+                     serde_json::json!({ "error": "Access denied" })
+                }
+            },
+            super::TitanAsyncOp::Batch(ops) => {
+                let mut res = Vec::new();
+                for op in ops {
+                    res.push(run_async_operation(op).await);
+                }
+                serde_json::Value::Array(res)
+            }
+        }
+    })
+}

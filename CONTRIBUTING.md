@@ -102,7 +102,20 @@ titan run ext
 - `titanpl-s3` - AWS S3 integration
 - `titanpl-websocket` - WebSocket support
 
-### 4. Documentation
+### 4. The Incubator (`incubator/`)
+
+The `incubator` folder is our **testing ground** for new features, architectural experiments, and patterns before they become official templates.
+
+**Location**: `incubator/`
+
+**Workflow**:
+1.  **Experiment**: Build prototypes or test breaking changes in `incubator/js` or `incubator/rust`.
+2.  **Validate**: Verify stability and performance in isolation.
+3.  **Promote**: Once polished, migrate the changes to the official `templates/` directory.
+
+Use this space for rapid prototyping without affecting stable releases.
+
+### 5. Documentation
 
 Help make Titan more accessible!
 

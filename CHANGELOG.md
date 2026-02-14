@@ -1,5 +1,18 @@
 # Changelog
 
+## [26.15.0] - 2026-02-14
+
+### 🚀 Performance & Stability
+
+#### **Asynchronous Operation Stabilization (Titan Server)**
+Fixed critical runtime crashes during `Drift` operations by implementing the missing `run_async_operation` dispatcher in the server core.
+
+* **Fix**: Implemented `run_async_operation` in `extensions/builtin.rs` to correctly route async tasks (`Fetch`, `DbQuery`, `FsRead`) to their Tokio handlers.
+* **Fix**: Enabled `tokio/fs` feature flag in `Cargo.toml` to support non-blocking file operations.
+* **Result**: `t.fetch`, `t.db.query`, and `t.fs.read` now work reliably without destabilizing the worker threads.
+
+---
+
 ## [26.14.1] - 2026-02-13
 
 ### 🚀 New Features

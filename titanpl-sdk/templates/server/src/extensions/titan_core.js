@@ -80,6 +80,19 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
         });
     }
 
+    // Response API (Dual-Signature)
+    // Supports TWO calling conventions for compatibility with fast-path parser:
+    //
+    //   Positional (legacy):
+    //     t.response.json(data, 201, { "X-Custom": "val" })
+    //
+    //   Options object (preferred — matches fast-path syntax):
+    //     t.response.json(data, { status: 201, headers: { "X-Custom": "val" } })
+    //
+    // The fast-path scanner parses the source code and expects the options-object
+    // form. Using the positional form works at runtime but won't be detected by
+    // fast-path. The options-object form works in BOTH paths.
+    //
     // Internal helper to normalize the second argument:
     function _parseResponseOpts(secondArg, thirdArg) {
         let status = 200;
