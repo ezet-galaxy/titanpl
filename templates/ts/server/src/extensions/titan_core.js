@@ -15,6 +15,32 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
         const wrapped = function (req) {
             const requestId = req.__titan_request_id;
 
+            if (req.rawBody && req.rawBody.byteLength !== undefined) {
+                try {
+                    const decoder = new TextDecoder();
+                    const text = decoder.decode(req.rawBody);
+
+                    const contentType =
+                        (req.headers && req.headers["content-type"]) ||
+                        (req.headers && req.headers["Content-Type"]) ||
+                        "";
+
+                    if (contentType.includes("application/json")) {
+                        req.body = text ? JSON.parse(text) : {};
+                    } else if (contentType.includes("application/x-www-form-urlencoded")) {
+                        req.body = Object.fromEntries(new URLSearchParams(text));
+                    } else {
+                        req.body = text;
+                    }
+                } catch (e) {
+                    req.body = {};
+                }
+            } else {
+                req.body = {};
+            }
+
+            // ===============================
+
             const isSuspend = (err) => {
                 const msg = err && (err.message || String(err));
                 return msg && (msg.includes("__SUSPEND__") || msg.includes("SUSPEND"));
@@ -25,9 +51,7 @@ if (!globalThis.__TITAN_CORE_LOADED__) {
 
                 if (result && typeof result.then === 'function') {
                     result.then(
-                        (data) => {
-                            t._finish_request(requestId, data);
-                        },
+                        (data) => t._finish_request(requestId, data),
                         (err) => {
                             if (isSuspend(err)) return;
                             t._finish_request(requestId, { error: err.message || String(err) });

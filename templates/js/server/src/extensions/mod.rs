@@ -470,16 +470,15 @@ pub fn execute_action_optimized(
     let p_val = v8_str(scope, req_path);
     req_obj.set(scope, p_key.into(), p_val.into());
 
-    // rawBody — zero-copy via ArrayBuffer backing store
+    // body — attach raw bytes as ArrayBuffer under "rawBody" key
+    let rb_key = v8::Local::new(scope, &gk_raw_body);
     let body_val: v8::Local<v8::Value> = if let Some(bytes) = req_body {
-        let vec = bytes.to_vec();
-        let store = v8::ArrayBuffer::new_backing_store_from_boxed_slice(vec.into_boxed_slice());
-        let ab = v8::ArrayBuffer::with_backing_store(scope, &store.make_shared());
+        let backing = v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec());
+        let ab = v8::ArrayBuffer::with_backing_store(scope, &backing.make_shared());
         ab.into()
     } else {
         v8::null(scope).into()
     };
-    let rb_key = v8::Local::new(scope, &gk_raw_body);
     req_obj.set(scope, rb_key.into(), body_val);
 
     // headers
